@@ -24,8 +24,9 @@ class FootnoteLink:
 
 @dataclass(slots=True)
 class FootnoteEntry:
-    """Flattened footnote entry keyed by chapter, verse, and letter."""
+    """Flattened footnote entry keyed by book, chapter, verse, and letter."""
 
+    book_slug: str
     chapter: str
     verse: str
     letter: str

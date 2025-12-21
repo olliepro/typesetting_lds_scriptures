@@ -30,42 +30,131 @@ from scriptures.pdf_builder import (
 )
 from scriptures.models import FootnoteEntry
 
+_GENESIS_BOOK = "genesis"
+_GENESIS_SAMPLE_ROWS = [
+    ("1", "1", "a", "HEB the earth was empty and desolate."),
+    ("1", "2", "a", "TG Earth; Water"),
+    (
+        "1",
+        "3",
+        "a",
+        "HEB Let there be light: and there was light; or, there shall be light; and there was light.",
+    ),
+    (
+        "1",
+        "4",
+        "a",
+        "HEB divided the light from the darkness: Heb separated between the light and between the darkness.",
+    ),
+    ("1", "5", "a", "HEB And it was evening, and it was morning, one day."),
+    ("1", "6", "a", "HEB expanse; i.e., the firmament or expanse of heaven."),
+    ("1", "7", "a", "HEB made the expanse and separated the waters."),
+    ("1", "8", "a", "HEB Heaven; i.e., sky or expanse."),
+    ("1", "9", "a", "HEB gathered into one place; dry land appeared."),
+    ("1", "10", "a", "HEB Earth and Seas; naming signifies ordering."),
+    ("1", "11", "a", "HEB herbs yielding seed and fruit trees yielding fruit."),
+    ("1", "12", "a", "HEB after its kind; recurring formula of order."),
+    ("1", "13", "a", "HEB third day completed."),
+    (
+        "1",
+        "14",
+        "a",
+        "HEB Let there be lights in the expanse of heaven to divide day from night.",
+    ),
+    ("1", "15", "a", "HEB give light upon the earth; serve as signs and seasons."),
+    (
+        "1",
+        "16",
+        "a",
+        "HEB two great lights; greater for the day, lesser for the night; also the stars.",
+    ),
+    ("1", "17", "a", "HEB set them in the expanse of heaven; appointed their stations."),
+    (
+        "1",
+        "18",
+        "a",
+        "HEB to rule over the day and over the night, and to divide the light from the darkness.",
+    ),
+    ("1", "19", "a", "HEB fourth day finished."),
+    (
+        "1",
+        "20",
+        "a",
+        "HEB swarm with swarms of living creatures; birds fly above the earth.",
+    ),
+    (
+        "1",
+        "21",
+        "a",
+        "HEB created the great sea creatures and every living creature that moves.",
+    ),
+    (
+        "1",
+        "22",
+        "a",
+        "HEB be fruitful and multiply; fill the waters; birds multiply in the earth.",
+    ),
+    ("1", "23", "a", "HEB fifth day completed."),
+    ("1", "24", "a", "HEB earth bring forth living creatures after their kind."),
+    (
+        "1",
+        "25",
+        "a",
+        "HEB beasts of the earth after their kind; order and taxonomy implied.",
+    ),
+    ("1", "26", "a", "HEB Let us make man in our image; dominion language."),
+    ("1", "27", "a", "HEB created male and female; image-bearing highlighted."),
+    (
+        "1",
+        "28",
+        "a",
+        "HEB be fruitful, multiply, replenish the earth, subdue it, have dominion.",
+    ),
+    (
+        "1",
+        "29",
+        "a",
+        "HEB every herb bearing seed and tree with fruit for meat.",
+    ),
+    (
+        "1",
+        "30",
+        "a",
+        "HEB green herb given to every beast, fowl, and creeping thing for meat.",
+    ),
+    ("1", "31", "a", "HEB behold, it was very good; sixth day concluded."),
+]
+
+
+def _entry(*, chapter: str, verse: str, letter: str, text: str) -> FootnoteEntry:
+    """Return a FootnoteEntry for Genesis sample data.
+
+    Args:
+        chapter: Chapter identifier.
+        verse: Verse identifier.
+        letter: Footnote letter.
+        text: Footnote text.
+    Returns:
+        FootnoteEntry instance.
+    """
+
+    return FootnoteEntry(
+        book_slug=_GENESIS_BOOK,
+        chapter=chapter,
+        verse=verse,
+        letter=letter,
+        text=text,
+        segments=[],
+        links=[],
+    )
+
 
 def _sample_entries() -> list[FootnoteEntry]:
     """Return a few Genesis 1-style footnotes for column testing."""
 
     return [
-        FootnoteEntry(chapter="1", verse="1", letter="a", text="HEB the earth was empty and desolate.", segments=[], links=[]),
-        FootnoteEntry(chapter="1", verse="2", letter="a", text="TG Earth; Water", segments=[], links=[]),
-        FootnoteEntry(chapter="1", verse="3", letter="a", text="HEB Let there be light: and there was light; or, there shall be light; and there was light.", segments=[], links=[]),
-        FootnoteEntry(chapter="1", verse="4", letter="a", text="HEB divided the light from the darkness: Heb separated between the light and between the darkness.", segments=[], links=[]),
-        FootnoteEntry(chapter="1", verse="5", letter="a", text="HEB And it was evening, and it was morning, one day.", segments=[], links=[]),
-        FootnoteEntry(chapter="1", verse="6", letter="a", text="HEB expanse; i.e., the firmament or expanse of heaven.", segments=[], links=[]),
-        FootnoteEntry(chapter="1", verse="7", letter="a", text="HEB made the expanse and separated the waters.", segments=[], links=[]),
-        FootnoteEntry(chapter="1", verse="8", letter="a", text="HEB Heaven; i.e., sky or expanse.", segments=[], links=[]),
-        FootnoteEntry(chapter="1", verse="9", letter="a", text="HEB gathered into one place; dry land appeared.", segments=[], links=[]),
-        FootnoteEntry(chapter="1", verse="10", letter="a", text="HEB Earth and Seas; naming signifies ordering.", segments=[], links=[]),
-        FootnoteEntry(chapter="1", verse="11", letter="a", text="HEB herbs yielding seed and fruit trees yielding fruit.", segments=[], links=[]),
-        FootnoteEntry(chapter="1", verse="12", letter="a", text="HEB after its kind; recurring formula of order.", segments=[], links=[]),
-        FootnoteEntry(chapter="1", verse="13", letter="a", text="HEB third day completed.", segments=[], links=[]),
-        FootnoteEntry(chapter="1", verse="14", letter="a", text="HEB Let there be lights in the expanse of heaven to divide day from night.", segments=[], links=[]),
-        FootnoteEntry(chapter="1", verse="15", letter="a", text="HEB give light upon the earth; serve as signs and seasons.", segments=[], links=[]),
-        FootnoteEntry(chapter="1", verse="16", letter="a", text="HEB two great lights; greater for the day, lesser for the night; also the stars.", segments=[], links=[]),
-        FootnoteEntry(chapter="1", verse="17", letter="a", text="HEB set them in the expanse of heaven; appointed their stations.", segments=[], links=[]),
-        FootnoteEntry(chapter="1", verse="18", letter="a", text="HEB to rule over the day and over the night, and to divide the light from the darkness.", segments=[], links=[]),
-        FootnoteEntry(chapter="1", verse="19", letter="a", text="HEB fourth day finished.", segments=[], links=[]),
-        FootnoteEntry(chapter="1", verse="20", letter="a", text="HEB swarm with swarms of living creatures; birds fly above the earth.", segments=[], links=[]),
-        FootnoteEntry(chapter="1", verse="21", letter="a", text="HEB created the great sea creatures and every living creature that moves.", segments=[], links=[]),
-        FootnoteEntry(chapter="1", verse="22", letter="a", text="HEB be fruitful and multiply; fill the waters; birds multiply in the earth.", segments=[], links=[]),
-        FootnoteEntry(chapter="1", verse="23", letter="a", text="HEB fifth day completed.", segments=[], links=[]),
-        FootnoteEntry(chapter="1", verse="24", letter="a", text="HEB earth bring forth living creatures after their kind.", segments=[], links=[]),
-        FootnoteEntry(chapter="1", verse="25", letter="a", text="HEB beasts of the earth after their kind; order and taxonomy implied.", segments=[], links=[]),
-        FootnoteEntry(chapter="1", verse="26", letter="a", text="HEB Let us make man in our image; dominion language.", segments=[], links=[]),
-        FootnoteEntry(chapter="1", verse="27", letter="a", text="HEB created male and female; image-bearing highlighted.", segments=[], links=[]),
-        FootnoteEntry(chapter="1", verse="28", letter="a", text="HEB be fruitful, multiply, replenish the earth, subdue it, have dominion.", segments=[], links=[]),
-        FootnoteEntry(chapter="1", verse="29", letter="a", text="HEB every herb bearing seed and tree with fruit for meat.", segments=[], links=[]),
-        FootnoteEntry(chapter="1", verse="30", letter="a", text="HEB green herb given to every beast, fowl, and creeping thing for meat.", segments=[], links=[]),
-        FootnoteEntry(chapter="1", verse="31", letter="a", text="HEB behold, it was very good; sixth day concluded.", segments=[], links=[]),
+        _entry(chapter=ch, verse=vs, letter=lt, text=txt)
+        for ch, vs, lt, txt in _GENESIS_SAMPLE_ROWS
     ]
 
 
@@ -83,7 +172,7 @@ def _split_rows_by_lines(rows, styles, text_width):
             vs_cell = vs if (idx == 0) else ""
             lt_cell = lt if (idx == 0) else ""
             line_para = Paragraph(html, styles["footnote"])
-            h = measure_height(line_para, text_width) + 2 * PageSettings().footnote_row_padding
+            h = measure_height(flowable=line_para, width=text_width) + 2 * PageSettings().footnote_row_padding
             split_rows.append((ch_cell, vs_cell, lt_cell, str(line_no), line_para))
             split_heights.append(h)
             split_lines.append(1)
@@ -98,19 +187,32 @@ def build_tables(show_line_numbers: bool):
     hyphenator = Pyphen(lang="en_US")
 
     entries = _sample_entries()
-    rows, heights, lines, _ = _footnote_rows(entries, styles, hyphenator, settings)
+    rows, heights, lines, _ = _footnote_rows(
+        entries=entries,
+        styles=styles,
+        hyphenator=hyphenator,
+        settings=settings,
+    )
 
     include_ch = any(ch for ch, _, _, _ in rows)
-    ch_w, vs_w, lt_w, txt_w = _footnote_column_widths(rows, include_ch, settings)
+    ch_w, vs_w, lt_w, txt_w = _footnote_column_widths(
+        rows=rows,
+        include_chapter=include_ch,
+        settings=settings,
+    )
 
     # Normal table
     slice_normal = type("Slice", (), {})()
     slice_normal.footnote_rows = rows
     slice_normal.footnote_row_heights = heights
     slice_normal.footnote_row_lines = lines
-    table_a = _footnote_table(slice_normal, settings)
+    table_a = _footnote_table(slice_normal, settings=settings)
 
-    split_rows, split_heights, split_lines = _split_rows_by_lines(rows, styles, txt_w)
+    split_rows, split_heights, split_lines = _split_rows_by_lines(
+        rows=rows,
+        styles=styles,
+        text_width=txt_w,
+    )
     # Fill columns left-to-right in reading order by simple chunking
     cols = 2
     per_col = (len(split_rows) + cols - 1) // cols

@@ -26,8 +26,8 @@ def main() -> None:
     hyphenator = Pyphen(lang="en_US")
 
     corpus = build_corpus(
-        Path("data/raw"),
-        Path("external/python-scripture-scraper/_output/metadata-scriptures.json"),
+        raw_root=Path("data/raw"),
+        metadata_path=Path("external/python-scripture-scraper/_output/metadata-scriptures.json"),
     )
     # Filter to Matthew only
     nt = next((sw for sw in corpus if sw.slug == "new-testament"), None)
@@ -39,7 +39,12 @@ def main() -> None:
         print("Matthew not found")
         return
 
-    slices = paginate_book(matthew, styles, hyphenator, settings)
+    slices = paginate_book(
+        book=matthew,
+        styles=styles,
+        hyphenator=hyphenator,
+        settings=settings,
+    )
     if not slices:
         print("No pages produced")
         return

@@ -14,7 +14,8 @@ def measure_height(flowable: Flowable, width: float) -> float:
     """Return the wrapped height for a flowable at the given width."""
 
     if isinstance(flowable, KeepTogether):
-        return sum(measure_height(child, width) for child in flowable._content)
+        content = getattr(flowable, "_content", [])
+        return sum(measure_height(child, width) for child in content)
     _, height = flowable.wrap(width, 10_000)
     return height
 

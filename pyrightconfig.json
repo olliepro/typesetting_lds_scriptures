@@ -1,0 +1,13 @@
+{
+  "typeCheckingMode": "basic",
+  "reportMissingImports": "none",
+  "reportMissingModuleSource": "none",
+  "reportMissingTypeStubs": "none",
+  "exclude": [
+    "external",
+    "output",
+    "data",
+    ".venv",
+    "scripts/debug_*"
+  ]
+}

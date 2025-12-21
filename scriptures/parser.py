@@ -45,8 +45,7 @@ def _unwrap_footnote_links(html: str) -> str:
             skipped_ws.append(prev)
             prev = prev.previous_element
         if isinstance(prev, NavigableString):
-            text = str(prev)
-            needs_space = bool(text) and not text[-1].isspace()
+            needs_space = bool(str(prev).strip())
         elif prev and getattr(prev, "name", None):
             needs_space = True
 
@@ -55,13 +54,31 @@ def _unwrap_footnote_links(html: str) -> str:
         if needs_space:
             for ws in skipped_ws:
                 ws.extract()
-            anchor.insert_before(
-                "\u00a0"
-            )  # non‑breaking space to preserve gap in ReportLab
+            if isinstance(prev, NavigableString):
+                trimmed = re.sub(r"\s+$", "", str(prev))
+                prev.replace_with(trimmed)
+            space_tag = soup.new_tag("span")
+            space_tag.string = " "
+            anchor.insert_before(space_tag)
         anchor.insert_before(new_sup)
         for child in list(anchor.children):
             anchor.insert_before(child)
         anchor.decompose()
+    return soup.decode_contents()
+
+
+def _strip_non_footnote_links(html: str) -> str:
+    """Remove non-footnote anchors while preserving their inner text.
+
+    Args:
+        html: Raw HTML markup that may include anchor tags.
+    Returns:
+        HTML markup without non-footnote anchor tags.
+    """
+
+    soup = BeautifulSoup(html, "html.parser")
+    for anchor in soup.find_all("a"):
+        anchor.unwrap()
     return soup.decode_contents()
 
 
@@ -121,9 +138,22 @@ def _parse_footnote_links(node: Tag, current_work: str) -> List[FootnoteLink]:
 
 
 def _parse_footnotes(
-    html: str, current_work: str, chapter_number: str
+    html: str,
+    *,
+    current_work: str,
+    book_slug: str,
+    chapter_number: str,
 ) -> List[FootnoteEntry]:
-    """Parse the nested footnote list into FootnoteEntry objects."""
+    """Parse the nested footnote list into FootnoteEntry objects.
+
+    Args:
+        html: Raw HTML for the footnote list.
+        current_work: Standard work slug for link resolution.
+        book_slug: Book slug owning the footnotes.
+        chapter_number: Chapter identifier for the footnotes.
+    Returns:
+        List of FootnoteEntry objects.
+    """
 
     soup = BeautifulSoup(html, "html.parser")
     entries: List[FootnoteEntry] = []
@@ -199,6 +229,7 @@ def _parse_footnotes(
             text_markup = _normalize_inline_html(li)
             segments = split_segments(li)
             entry = FootnoteEntry(
+                book_slug=book_slug,
                 chapter=chapter_number,
                 verse=verse,
                 letter=letter,
@@ -215,6 +246,7 @@ def _parse_verse(paragraph: dict) -> Verse:
 
     raw_html = paragraph["contentHtml"]
     clean_html = _unwrap_footnote_links(raw_html)
+    clean_html = _strip_non_footnote_links(clean_html)
     plain = clean_text(BeautifulSoup(clean_html, "html.parser").get_text(" "))
     return Verse(
         chapter="",
@@ -262,7 +294,12 @@ def load_chapter(path: Path) -> Chapter:
             verses.append(verse)
         elif p["type"] == "study-footnotes":
             footnotes.extend(
-                _parse_footnotes(p["contentHtml"], standard_work, chapter_number)
+                _parse_footnotes(
+                    p["contentHtml"],
+                    current_work=standard_work,
+                    book_slug=book_slug,
+                    chapter_number=chapter_number,
+                )
             )
 
     title = data.get("name", f"{book_slug} {chapter_number}")
