@@ -283,28 +283,32 @@ class _BuildMixin(_LineBuilderBase):
             None.
         """
 
+        category = para_dict.get("paragraphCategory") or ""
         p_type = para_dict.get("type")
-        if p_type == "study-footnotes":
-            return
-        if p_type == "verse":
-            self._handle_verse(para_dict=para_dict)
-        elif p_type == "book-title":
-            self._handle_book_title(para_dict=para_dict)
-        elif p_type == "book-subtitle":
-            if not self.book_subtitles_consumed:
-                self._handle_book_subtitle(para_dict=para_dict)
-        elif p_type == "chapter-title":
-            self._handle_chapter_title(para_dict=para_dict)
-        elif p_type == "chapter-subtitle":
-            pass
-        elif p_type == "section-title":
-            self._handle_section_title(para_dict=para_dict)
-        elif p_type == "study-paragraph":
-            self._handle_study_paragraph(para_dict=para_dict)
-        elif p_type == "paragraph":
-            self._handle_plain_paragraph(para_dict=para_dict)
-        else:
-            self._handle_plain_paragraph(para_dict=para_dict)
+        try:
+            if p_type == "study-footnotes":
+                return
+            if p_type == "verse":
+                self._handle_verse(para_dict=para_dict)
+            elif p_type == "book-title":
+                self._handle_book_title(para_dict=para_dict)
+            elif p_type == "book-subtitle":
+                if not self.book_subtitles_consumed:
+                    self._handle_book_subtitle(para_dict=para_dict)
+            elif p_type == "chapter-title":
+                self._handle_chapter_title(para_dict=para_dict)
+            elif p_type == "chapter-subtitle":
+                pass
+            elif p_type == "section-title":
+                self._handle_section_title(para_dict=para_dict)
+            elif p_type == "study-paragraph":
+                self._handle_study_paragraph(para_dict=para_dict)
+            elif p_type == "paragraph":
+                self._handle_plain_paragraph(para_dict=para_dict)
+            else:
+                self._handle_plain_paragraph(para_dict=para_dict)
+        finally:
+            self.prev_paragraph_category = category
 
     def _collect_chapter_subtitles(self) -> List[str]:
         """Return chapter subtitle HTML strings.

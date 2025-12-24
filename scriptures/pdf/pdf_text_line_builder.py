@@ -49,3 +49,5 @@ class ChapterLineBuilder(_BuildMixin, _TitlesMixin, _ParagraphsMixin, _VersesMix
     chapter_subtitles: List[str] = field(default_factory=list)
     book_subtitles: List[str] = field(default_factory=list)
     book_subtitles_consumed: bool = False
+    prev_paragraph_category: str | None = None
+    declaration_excerpt_mode: bool = False

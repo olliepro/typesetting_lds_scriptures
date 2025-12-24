@@ -14,7 +14,7 @@ from reportlab.platypus import (
     Spacer,
 )
 
-from .pdf_columns import _text_table
+from .pdf_columns import _leading_book_title_flowable, _text_table
 from .pdf_footnotes import _footnote_table
 from .pdf_settings import PageSettings
 from .pdf_types import PageSlice
@@ -50,13 +50,16 @@ def _toc_flowables(
     return entries
 
 
-def _on_page_factory(*, label: str, font_name: str, settings: PageSettings):
+def _on_page_factory(
+    *, label: str, font_name: str, settings: PageSettings, show_header: bool = True
+):
     """Create an onPage callback that renders page number and range.
 
     Args:
         label: Page range label.
         font_name: Font name for page numbers.
         settings: Page settings.
+        show_header: Whether to draw the page number and range label.
     Returns:
         onPage callback function.
     """
@@ -64,10 +67,11 @@ def _on_page_factory(*, label: str, font_name: str, settings: PageSettings):
     def draw(canvas, doc):
         canvas.saveState()
         canvas.bookmarkPage(f"page-{doc.page}")
-        canvas.setFont(font_name, 9)
-        y = settings.page_height - settings.margin_top + 8
-        canvas.drawString(settings.margin_left, y, str(doc.page))
-        canvas.drawRightString(settings.page_width - settings.margin_right, y, label)
+        if show_header:
+            canvas.setFont(font_name, 9)
+            y = settings.page_height - settings.margin_top + 8
+            canvas.drawString(settings.margin_left, y, str(doc.page))
+            canvas.drawRightString(settings.page_width - settings.margin_right, y, label)
         canvas.restoreState()
 
     return draw
@@ -139,6 +143,9 @@ def _content_template(
         PageTemplate for the content page.
     """
 
+    suppress_header = (
+        _leading_book_title_flowable(blocks=slice_.text_blocks) is not None
+    )
     return PageTemplate(
         id=slice_.template_id,
         frames=_content_frames(slice_=slice_, settings=settings),
@@ -146,6 +153,7 @@ def _content_template(
             label=slice_.range_label,
             font_name=font_name,
             settings=settings,
+            show_header=not suppress_header,
         ),
     )
 

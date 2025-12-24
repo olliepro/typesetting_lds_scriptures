@@ -31,23 +31,37 @@ class _TitlesMixin(_LineBuilderBase):
         paragraph_key = f"section-title-{self.para_counter}"
         full_width = self._is_full_width_paragraph(para_dict=para_dict)
         if not self.items:
+            style = self.styles["section"]
+            if self.book.slug == "official-declarations":
+                style = self.styles["declaration_section"]
             self._insert_spacer(
-                height=self.styles["section"].spaceBefore or 0,
+                height=style.spaceBefore or 0,
                 paragraph_key=f"{paragraph_key}-lead",
                 full_width=full_width,
             )
         section_html = para_dict.get("contentHtml", "")
         hebrew_font = getattr(self.styles["section"], "hebrew_font_name", None)
         section_html = _apply_hebrew_font(html=section_html, hebrew_font=hebrew_font)
+        style = self.styles["section"]
+        style_name = "section"
+        if self.book.slug == "official-declarations":
+            section_html = _uppercase_html_text(html=section_html)
+            style = self.styles["declaration_section"]
+            style_name = "declaration_section"
+            self.declaration_excerpt_mode = self._is_declaration_excerpt_title(
+                html=section_html
+            )
+        else:
+            self.declaration_excerpt_mode = False
         self._append_wrapped_lines(
             html=section_html,
-            style=self.styles["section"],
-            style_name="section",
+            style=style,
+            style_name=style_name,
             paragraph_key=paragraph_key,
             full_width=full_width,
         )
         self._insert_spacer(
-            height=self.styles["section"].spaceAfter or 0,
+            height=style.spaceAfter or 0,
             paragraph_key=f"{paragraph_key}-trail",
             full_width=full_width,
         )
@@ -64,6 +78,16 @@ class _TitlesMixin(_LineBuilderBase):
         self.para_counter += 1
         paragraph_key = f"book-title-{self.para_counter}"
         raw_html = para_dict.get("contentHtml", "")
+        if self.book.slug == "official-declarations":
+            html = _uppercase_html_text(html=raw_html)
+            self._append_single_paragraph(
+                html=html,
+                style=self.styles["declaration_title"],
+                style_name="declaration_title",
+                paragraph_key=paragraph_key,
+                full_width=self._is_full_width_paragraph(para_dict=para_dict),
+            )
+            return
         pretitle_htmls, title_html = _split_small_prefix(html=raw_html)
         html = _uppercase_html_text(html=title_html)
         subtitles = self._consume_book_subtitles()
@@ -93,6 +117,17 @@ class _TitlesMixin(_LineBuilderBase):
             paragraph_key=paragraph_key,
             full_width=full_width,
         )
+
+    def _is_declaration_excerpt_title(self, *, html: str) -> bool:
+        """Return True when the section title is the excerpts heading.
+
+        Args:
+            html: Section title HTML.
+        Returns:
+            True for the excerpts heading.
+        """
+
+        return "EXCERPTS FROM" in html.upper()
 
     def _handle_book_subtitle(self, *, para_dict: Dict) -> None:
         """Append flow items for a book subtitle paragraph.

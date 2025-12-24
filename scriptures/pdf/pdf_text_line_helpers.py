@@ -248,6 +248,10 @@ def _body_style_for_group(*, group: Sequence[FlowItem]) -> str:
         base_style = "body"
     elif first.style_name.startswith("historical_narrative"):
         base_style = "historical_narrative"
+    elif first.style_name.startswith("declaration_body"):
+        base_style = "declaration_body"
+    elif first.style_name.startswith("declaration_excerpt"):
+        base_style = "declaration_excerpt"
     if base_style is None:
         return first.style_name
     ends_mid_segment = group[-1].verse_line_index < group[-1].verse_line_count - 1

@@ -18,6 +18,111 @@ from .pdf_types import FlowItem
 class _ParagraphsMixin(_LineBuilderBase):
     """Mixin for study/plain paragraph handling."""
 
+    def _handle_declaration_paragraph(
+        self,
+        *,
+        para_dict: Dict,
+        paragraph_key: str,
+        full_width: bool,
+    ) -> bool:
+        """Handle official declaration paragraph categories when present.
+
+        Args:
+            para_dict: Paragraph data with category metadata.
+            paragraph_key: Key for paragraph grouping.
+            full_width: Whether to render across full body width.
+        Returns:
+            True when a declaration-specific handler was applied.
+        """
+
+        if self.book.slug != "official-declarations":
+            return False
+        category = para_dict.get("paragraphCategory") or ""
+        handlers = {
+            "declaration_heading": ("single", "declaration_heading"),
+            "declaration_body": ("wrapped", self._declaration_body_style_name()),
+            "declaration_signature": ("single", self._declaration_signature_style_name()),
+            "declaration_date_line": ("single", "declaration_date_line"),
+        }
+        handler = handlers.get(category)
+        if handler is None:
+            return False
+        if self._needs_declaration_gap(current_category=category):
+            self._insert_declaration_gap(
+                paragraph_key=paragraph_key,
+                full_width=full_width,
+            )
+        html = para_dict.get("contentHtml", "")
+        mode, style_name = handler
+        style = self.styles[style_name]
+        append = (
+            self._append_wrapped_lines if mode == "wrapped" else self._append_single_paragraph
+        )
+        append(
+            html=html,
+            style=style,
+            style_name=style_name,
+            paragraph_key=paragraph_key,
+            full_width=full_width,
+        )
+        return True
+
+    def _declaration_signature_style_name(self) -> str:
+        """Return the style name for the current declaration signature.
+
+        Returns:
+            Style key for the signature paragraph.
+        """
+
+        if self.chapter.number == "2":
+            return "declaration_signature_left"
+        return "declaration_signature"
+
+    def _declaration_body_style_name(self) -> str:
+        """Return the style name for the current declaration body.
+
+        Returns:
+            Style key for declaration body paragraphs.
+        """
+
+        if self.declaration_excerpt_mode:
+            return "declaration_excerpt"
+        return "declaration_body"
+
+    def _needs_declaration_gap(self, *, current_category: str) -> bool:
+        """Return True when a signature block transition needs spacing.
+
+        Args:
+            current_category: Paragraph category for the current paragraph.
+        Returns:
+            True when a spacer should be inserted for signature transitions.
+        """
+
+        previous = self.prev_paragraph_category or ""
+        if current_category == "declaration_signature":
+            return previous != "declaration_signature"
+        return previous == "declaration_signature"
+
+    def _insert_declaration_gap(
+        self, *, paragraph_key: str, full_width: bool
+    ) -> None:
+        """Insert a standard gap between declaration blocks.
+
+        Args:
+            paragraph_key: Key for paragraph grouping.
+            full_width: Whether to render across full body width.
+        Returns:
+            None.
+        """
+
+        body_style = self.styles["body"]
+        gap = body_style.leading or body_style.fontSize or 0
+        self._insert_spacer(
+            height=gap,
+            paragraph_key=f"{paragraph_key}-declaration-gap",
+            full_width=full_width,
+        )
+
     def _handle_study_paragraph(self, *, para_dict: Dict) -> None:
         """Append flow items for a study paragraph.
 
@@ -70,6 +175,12 @@ class _ParagraphsMixin(_LineBuilderBase):
         paragraph_key = f"paragraph-{self.para_counter}"
         full_width = self._is_full_width_paragraph(para_dict=para_dict)
         html = para_dict.get("contentHtml", "")
+        if self._handle_declaration_paragraph(
+            para_dict=para_dict,
+            paragraph_key=paragraph_key,
+            full_width=full_width,
+        ):
+            return
         if self._is_jsh_section_summary(para_dict=para_dict):
             body_style = self.styles["body"]
             gap = body_style.leading or body_style.fontSize or 0

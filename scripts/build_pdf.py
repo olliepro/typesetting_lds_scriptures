@@ -245,9 +245,7 @@ def main() -> None:
     else:
         raw_root = run_scraper(ScrapeConfig())
 
-    metadata_path = Path(
-        "external/python-scripture-scraper/_output/metadata-scriptures.json"
-    )
+    metadata_path = Path("data/raw/metadata-scriptures.json")
     corpus = build_corpus(
         raw_root=raw_root,
         metadata_path=metadata_path,

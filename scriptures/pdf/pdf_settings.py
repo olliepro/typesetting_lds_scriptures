@@ -227,14 +227,27 @@ def _core_styles(
     body_cont = _continuation_style(style=body)
     header = _header_style(base=base, font_name=font_name)
     book_title = _book_title_style(header=header)
+    declaration_title = _declaration_title_style(header=header)
     book_subtitle = _book_subtitle_style(base=base, font_name=font_name)
     book_summary = _book_summary_style(body=body)
+    declaration_heading = _declaration_heading_style(body=body)
+    declaration_body = _declaration_body_style(body=body)
+    declaration_body_cont = _continuation_style(style=declaration_body)
+    declaration_excerpt = _declaration_excerpt_style(body=body)
+    declaration_excerpt_cont = _continuation_style(style=declaration_excerpt)
+    declaration_signature = _declaration_signature_style(body=body)
+    declaration_signature_left = _declaration_signature_left_style(body=body)
+    declaration_date_line = _declaration_date_line_style(body=body)
     psalm_headnote = _psalm_headnote_style(body=body, italic_name=italic_name)
     historical_narrative = _historical_narrative_style(body=body)
     historical_narrative_cont = _continuation_style(style=historical_narrative)
     decorative_divider = _decorative_divider_style(body=body)
     section = _section_style(
         header=header, font_name=font_name, hebrew_font=hebrew_font
+    )
+    declaration_section = _declaration_section_style(
+        header=header,
+        font_name=font_name,
     )
     chapter_heading = _chapter_heading_style(base=base, font_name=font_name)
     preface = _preface_style(base=base, italic_name=italic_name)
@@ -246,8 +259,27 @@ def _core_styles(
         "body-cont-justify-last": _body_cont_justify_last(style=body_cont),
         "header": header,
         "book_title": book_title,
+        "declaration_title": declaration_title,
         "book_subtitle": book_subtitle,
         "book_summary": book_summary,
+        "declaration_heading": declaration_heading,
+        "declaration_body": declaration_body,
+        "declaration_body-cont": declaration_body_cont,
+        "declaration_body-justify-last": _body_justify_last(style=declaration_body),
+        "declaration_body-cont-justify-last": _body_cont_justify_last(
+            style=declaration_body_cont
+        ),
+        "declaration_excerpt": declaration_excerpt,
+        "declaration_excerpt-cont": declaration_excerpt_cont,
+        "declaration_excerpt-justify-last": _body_justify_last(
+            style=declaration_excerpt
+        ),
+        "declaration_excerpt-cont-justify-last": _body_cont_justify_last(
+            style=declaration_excerpt_cont
+        ),
+        "declaration_signature": declaration_signature,
+        "declaration_signature_left": declaration_signature_left,
+        "declaration_date_line": declaration_date_line,
         "psalm_headnote": psalm_headnote,
         "historical_narrative": historical_narrative,
         "historical_narrative-cont": historical_narrative_cont,
@@ -259,6 +291,7 @@ def _core_styles(
         ),
         "decorative_divider": decorative_divider,
         "section": section,
+        "declaration_section": declaration_section,
         "chapter_heading": chapter_heading,
         "preface": preface,
         "study": study,
@@ -409,6 +442,170 @@ def _book_title_style(*, header: ParagraphStyle) -> ParagraphStyle:
         alignment=TA_CENTER,
         spaceBefore=38,
         spaceAfter=10,
+    )
+
+
+def _declaration_title_style(*, header: ParagraphStyle) -> ParagraphStyle:
+    """Return the official declaration title style.
+
+    Args:
+        header: Base header style.
+    Returns:
+        ParagraphStyle for official declaration titles.
+    """
+
+    return ParagraphStyle(
+        "DeclarationTitle",
+        parent=header,
+        fontSize=14,
+        leading=16,
+        alignment=TA_CENTER,
+        spaceBefore=24,
+        spaceAfter=10,
+    )
+
+
+def _declaration_heading_style(*, body: ParagraphStyle) -> ParagraphStyle:
+    """Return the official declaration heading style.
+
+    Args:
+        body: Base body style.
+    Returns:
+        ParagraphStyle for declaration headings.
+    """
+
+    return ParagraphStyle(
+        "DeclarationHeading",
+        parent=body,
+        alignment=TA_LEFT,
+        firstLineIndent=0,
+        leftIndent=0,
+        spaceBefore=8,
+        spaceAfter=4,
+    )
+
+
+def _declaration_body_style(*, body: ParagraphStyle) -> ParagraphStyle:
+    """Return the official declaration body style.
+
+    Args:
+        body: Base body style.
+    Returns:
+        ParagraphStyle for declaration body paragraphs.
+    """
+
+    return ParagraphStyle(
+        "DeclarationBody",
+        parent=body,
+        leftIndent=0,
+        firstLineIndent=0,
+        spaceAfter=6,
+    )
+
+
+def _declaration_excerpt_style(*, body: ParagraphStyle) -> ParagraphStyle:
+    """Return the official declaration excerpt body style.
+
+    Args:
+        body: Base body style.
+    Returns:
+        ParagraphStyle for excerpt body paragraphs.
+    """
+
+    return ParagraphStyle(
+        "DeclarationExcerpt",
+        parent=body,
+        fontSize=9,
+        leading=10.5,
+        leftIndent=0,
+        firstLineIndent=0,
+        spaceAfter=6,
+    )
+
+
+def _declaration_signature_style(*, body: ParagraphStyle) -> ParagraphStyle:
+    """Return the official declaration signature style.
+
+    Args:
+        body: Base body style.
+    Returns:
+        ParagraphStyle for declaration signatures.
+    """
+
+    return ParagraphStyle(
+        "DeclarationSignature",
+        parent=body,
+        alignment=TA_CENTER,
+        leftIndent=135,
+        rightIndent=0,
+        firstLineIndent=0,
+        spaceBefore=0,
+        spaceAfter=0,
+    )
+
+
+def _declaration_signature_left_style(*, body: ParagraphStyle) -> ParagraphStyle:
+    """Return the official declaration left-aligned signature style.
+
+    Args:
+        body: Base body style.
+    Returns:
+        ParagraphStyle for left-aligned declaration signatures.
+    """
+
+    return ParagraphStyle(
+        "DeclarationSignatureLeft",
+        parent=body,
+        alignment=TA_LEFT,
+        leftIndent=240,
+        rightIndent=0,
+        firstLineIndent=0,
+        spaceBefore=0,
+        spaceAfter=0,
+    )
+
+
+def _declaration_date_line_style(*, body: ParagraphStyle) -> ParagraphStyle:
+    """Return the official declaration date-line style.
+
+    Args:
+        body: Base body style.
+    Returns:
+        ParagraphStyle for declaration date lines.
+    """
+
+    return ParagraphStyle(
+        "DeclarationDateLine",
+        parent=body,
+        alignment=TA_CENTER,
+        firstLineIndent=0,
+        leftIndent=0,
+        spaceBefore=6,
+        spaceAfter=6,
+    )
+
+
+def _declaration_section_style(
+    *, header: ParagraphStyle, font_name: str
+) -> ParagraphStyle:
+    """Return the official declaration section heading style.
+
+    Args:
+        header: Base header style.
+        font_name: Base font name.
+    Returns:
+        ParagraphStyle for declaration section headings.
+    """
+
+    return ParagraphStyle(
+        "DeclarationSection",
+        parent=header,
+        fontName=font_name,
+        fontSize=11,
+        leading=13,
+        alignment=TA_CENTER,
+        spaceBefore=12,
+        spaceAfter=8,
     )
 
 

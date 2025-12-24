@@ -207,6 +207,33 @@ def _layout_text_blocks(
     return blocks, total
 
 
+def _leading_book_title_flowable(
+    *, blocks: Sequence[TextBlock]
+) -> Flowable | None:
+    """Return the leading book title flowable when the page starts with one.
+
+    Args:
+        blocks: Text blocks for the page slice.
+    Returns:
+        Leading book title flowable, or None when absent.
+    """
+
+    if not blocks:
+        return None
+    first_block = blocks[0]
+    if first_block.kind != "full_width" or not first_block.flowables:
+        return None
+    flowable = first_block.flowables[0]
+    if getattr(flowable, "book_title_group", False):
+        return flowable
+    style = getattr(flowable, "style", None)
+    if style is None:
+        return None
+    if getattr(style, "name", "") not in {"BookTitle", "DeclarationTitle"}:
+        return None
+    return flowable
+
+
 def _suppress_leading_book_title_space(
     *, blocks: List[TextBlock], total: float
 ) -> float:
@@ -222,18 +249,10 @@ def _suppress_leading_book_title_space(
     if not blocks:
         return total
     first_block = blocks[0]
-    if first_block.kind != "full_width" or not first_block.flowables:
+    flowable = _leading_book_title_flowable(blocks=blocks)
+    if flowable is None:
         return total
-    flowable = first_block.flowables[0]
-    if getattr(flowable, "book_title_group", False):
-        space_before = flowable.getSpaceBefore()
-        if space_before > 0:
-            flowable.spaceBefore = 0
-    else:
-        style = getattr(flowable, "style", None)
-        if style is None or getattr(style, "name", "") != "BookTitle":
-            return total
-        space_before = flowable.getSpaceBefore()
+    space_before = flowable.getSpaceBefore()
     if space_before <= 0:
         return total
     flowable.spaceBefore = 0
