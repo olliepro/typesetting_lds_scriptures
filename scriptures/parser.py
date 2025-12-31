@@ -26,6 +26,191 @@ _WORK_SEGMENT_TO_SLUG = {
 }
 
 _SMALL_TAG_REPLACEMENT = '<font size="7">{}</font> '
+_SMALL_CAPS_FONT_SIZE = 9
+_SMALL_CAPS_WORD_RE = re.compile(r"[A-Za-z]+")
+_DASH_CHARACTERS = {"-", "\u2010", "\u2011", "\u2012", "\u2013", "\u2014"}
+
+
+def _ends_with_dash(*, text: str) -> bool:
+    """Return True when text ends with a dash character.
+
+    Args:
+        text: Text to inspect.
+    Returns:
+        True when the last non-whitespace character is a dash.
+
+    Example:
+        >>> _ends_with_dash(text="said\\u2014")
+        True
+    """
+
+    stripped = text.rstrip()
+    if not stripped:
+        return False
+    return stripped[-1] in _DASH_CHARACTERS
+
+
+def _footnote_prev_context(
+    *, anchor: Tag
+) -> tuple[Tag | NavigableString | None, list[NavigableString]]:
+    """Return the previous non-whitespace element and skipped whitespace.
+
+    Args:
+        anchor: Footnote anchor tag being unwrapped.
+    Returns:
+        Tuple of (previous_element, skipped_whitespace_nodes).
+    """
+
+    prev = anchor.previous_element
+    skipped_ws: list[NavigableString] = []
+    while prev and isinstance(prev, NavigableString) and not str(prev).strip():
+        skipped_ws.append(prev)
+        prev = prev.previous_element
+    if prev is None or not isinstance(prev, (NavigableString, Tag)):
+        return None, skipped_ws
+    return prev, skipped_ws
+
+
+def _footnote_needs_space(*, prev: Tag | NavigableString | None) -> bool:
+    """Return True when a footnote marker needs a leading space.
+
+    Args:
+        prev: Previous non-whitespace element.
+    Returns:
+        True when the superscript should be separated by a space.
+    """
+
+    if prev is None:
+        return False
+    if isinstance(prev, NavigableString):
+        text = str(prev)
+        if not text.strip():
+            return False
+        return not _ends_with_dash(text=text)
+    text = prev.get_text()
+    if _ends_with_dash(text=text):
+        return False
+    return True
+
+
+def _strip_trailing_whitespace(node: NavigableString) -> bool:
+    """Strip trailing whitespace from a NavigableString.
+
+    Args:
+        node: Text node to trim.
+    Returns:
+        True when trailing whitespace was removed.
+    """
+
+    text = str(node)
+    match = re.search(r"\s+$", text)
+    if not match:
+        return False
+    prefix = text[: match.start()]
+    if not prefix.strip():
+        node.extract()
+        return False
+    node.replace_with(prefix)
+    return True
+
+
+def _small_caps_text_nodes(
+    *, text: str, soup: BeautifulSoup, font_size: int
+) -> List[Tag | NavigableString]:
+    """Return nodes for a small-caps text run with initial caps when capitalized.
+
+    Args:
+        text: Source text to convert.
+        soup: BeautifulSoup instance for tag creation.
+        font_size: Font size for the small-caps portion.
+    Returns:
+        List of nodes representing the transformed text.
+    Example:
+        >>> soup = BeautifulSoup("", "html.parser")
+        >>> [str(node) for node in _small_caps_text_nodes(text="Lord", soup=soup, font_size=9)]  # doctest: +SKIP
+        ['L', '<font size="9">ORD</font>']
+    """
+
+    nodes: List[Tag | NavigableString] = []
+    pos = 0
+
+    def small_caps_tag(value: str) -> Tag:
+        font_tag = soup.new_tag("font")
+        font_tag["size"] = str(font_size)
+        font_tag.string = value
+        return font_tag
+
+    for match in _SMALL_CAPS_WORD_RE.finditer(text):
+        start, end = match.span()
+        word_raw = match.group(0)
+        leading_space = ""
+        if start > pos:
+            between = text[pos:start]
+            if between and not word_raw[0].isupper():
+                stripped = between.rstrip()
+                leading_space = between[len(stripped) :]
+                between = stripped
+            if between:
+                nodes.append(NavigableString(between))
+        word = word_raw.upper()
+        if word_raw[0].isupper():
+            nodes.append(NavigableString(word[0]))
+            if word[1:]:
+                nodes.append(small_caps_tag(word[1:]))
+        else:
+            nodes.append(small_caps_tag(f"{leading_space}{word}"))
+        pos = end
+    if pos < len(text):
+        nodes.append(NavigableString(text[pos:]))
+    return nodes
+
+
+def _apply_verse_span_markup(*, html: str) -> str:
+    """Convert verse span classes into ReportLab-friendly markup.
+
+    Args:
+        html: Verse HTML fragment that may contain ``small-caps`` or
+            ``clarity-word`` span tags.
+    Returns:
+        HTML with small-caps converted to uppercase text inside a smaller
+        <font> tag and clarity words wrapped in <i> tags.
+    Example:
+        >>> _apply_verse_span_markup(html='By the <span class="small-caps">Lord</span>.')  # doctest: +SKIP
+        'By the L<font size="9">ORD</font>.'
+    """
+
+    soup = BeautifulSoup(html, "html.parser")
+    for span in list(soup.select("span.small-caps")):
+        new_nodes: List[Tag | NavigableString] = []
+        for child in list(span.contents):
+            if isinstance(child, NavigableString):
+                new_nodes.extend(
+                    _small_caps_text_nodes(
+                        text=str(child),
+                        soup=soup,
+                        font_size=_SMALL_CAPS_FONT_SIZE,
+                    )
+                )
+            elif isinstance(child, Tag):
+                child.extract()
+                new_nodes.append(child)
+        for node in new_nodes:
+            span.insert_before(node)
+        span.decompose()
+    for span in list(soup.select("span.clarity-word")):
+        prev = span.previous_sibling
+        needs_space = False
+        if isinstance(prev, NavigableString):
+            needs_space = _strip_trailing_whitespace(prev)
+        if needs_space:
+            space_tag = soup.new_tag("span")
+            space_tag.string = " "
+            span.insert_before(space_tag)
+        italic_tag = soup.new_tag("i")
+        for child in list(span.contents):
+            italic_tag.append(child.extract())
+        span.replace_with(italic_tag)
+    return soup.decode_contents()
 
 
 def _unwrap_footnote_links(html: str) -> str:
@@ -38,16 +223,8 @@ def _unwrap_footnote_links(html: str) -> str:
         if sup:
             sup.decompose()
         # Add a leading space before the footnote marker when stuck to a word
-        needs_space = False
-        prev = anchor.previous_element
-        skipped_ws = []
-        while prev and isinstance(prev, NavigableString) and not str(prev).strip():
-            skipped_ws.append(prev)
-            prev = prev.previous_element
-        if isinstance(prev, NavigableString):
-            needs_space = bool(str(prev).strip())
-        elif prev and getattr(prev, "name", None):
-            needs_space = True
+        prev, skipped_ws = _footnote_prev_context(anchor=anchor)
+        needs_space = _footnote_needs_space(prev=prev)
 
         new_sup = soup.new_tag("sup")
         new_sup.string = letter
@@ -55,8 +232,7 @@ def _unwrap_footnote_links(html: str) -> str:
             for ws in skipped_ws:
                 ws.extract()
             if isinstance(prev, NavigableString):
-                trimmed = re.sub(r"\s+$", "", str(prev))
-                prev.replace_with(trimmed)
+                _strip_trailing_whitespace(prev)
             space_tag = soup.new_tag("span")
             space_tag.string = " "
             anchor.insert_before(space_tag)
@@ -242,11 +418,18 @@ def _parse_footnotes(
 
 
 def _parse_verse(paragraph: dict) -> Verse:
-    """Convert a verse paragraph dictionary into a Verse instance."""
+    """Convert a verse paragraph dictionary into a Verse instance.
+
+    Args:
+        paragraph: Raw paragraph dictionary for a verse.
+    Returns:
+        Verse object with normalized HTML and plain text.
+    """
 
     raw_html = paragraph["contentHtml"]
     clean_html = _unwrap_footnote_links(raw_html)
     clean_html = _strip_non_footnote_links(clean_html)
+    clean_html = _apply_verse_span_markup(html=clean_html)
     plain = clean_text(BeautifulSoup(clean_html, "html.parser").get_text(" "))
     return Verse(
         chapter="",

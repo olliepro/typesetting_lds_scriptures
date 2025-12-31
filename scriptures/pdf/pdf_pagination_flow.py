@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Dict, List, Protocol, Sequence
 
 from pyphen import Pyphen
@@ -15,7 +16,7 @@ from .pdf_footnotes import _range_label
 from .pdf_pagination_fit import PageFitter
 from .pdf_settings import PageSettings
 from .pdf_text import _line_items_for_chapter
-from .pdf_types import ChapterFlow, FlowItem, PagePlan, PageSlice
+from .pdf_types import ChapterFlow, FlowItem, PageLookup, PagePlan, PageSlice
 
 
 class _ProgressTracker(Protocol):
@@ -683,10 +684,40 @@ def _chapter_page_map(
         Mapping of (book_slug, chapter) to page number.
     """
 
-    mapping: Dict[tuple[str, str], int] = {}
+    return _page_lookup(pages=pages, toc_pages=toc_pages).chapters
+
+
+def _page_lookup(*, pages: Sequence[PageSlice], toc_pages: int = 1) -> PageLookup:
+    """Map scripture chapters and verses to their first page numbers.
+
+    Args:
+        pages: Page slices in order.
+        toc_pages: Number of table-of-contents pages.
+    Returns:
+        PageLookup with chapter and verse page mappings.
+
+    Example:
+        >>> lookup = _page_lookup(pages=[], toc_pages=1)
+        >>> lookup.chapters
+        {}
+    """
+
+    chapter_pages: Dict[tuple[str, str], int] = {}
+    verse_pages: Dict[tuple[str, str, str], int] = {}
     for idx, page in enumerate(pages, start=toc_pages + 1):
         for item in page.text_items:
-            if item.is_verse:
-                key = (item.book_slug, item.chapter)
-                mapping.setdefault(key, idx)
-    return mapping
+            if item.chapter:
+                chapter_key = (item.book_slug, item.chapter)
+                chapter_pages.setdefault(chapter_key, idx)
+            if not item.is_verse:
+                continue
+            verse = item.verse
+            if not verse:
+                continue
+            verse_key = (item.book_slug, item.chapter, verse)
+            verse_pages.setdefault(verse_key, idx)
+            match = re.match(r"^(\d+)", verse)
+            if match and match.group(1) != verse:
+                short_key = (item.book_slug, item.chapter, match.group(1))
+                verse_pages.setdefault(short_key, idx)
+    return PageLookup(chapters=chapter_pages, verses=verse_pages)

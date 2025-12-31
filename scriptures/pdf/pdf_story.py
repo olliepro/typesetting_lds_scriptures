@@ -17,7 +17,7 @@ from reportlab.platypus import (
 from .pdf_columns import _leading_book_title_flowable, _text_table
 from .pdf_footnotes import _footnote_table
 from .pdf_settings import PageSettings
-from .pdf_types import PageSlice
+from .pdf_types import OutlineEntry, PageSlice
 from ..models import StandardWork
 
 
@@ -51,7 +51,12 @@ def _toc_flowables(
 
 
 def _on_page_factory(
-    *, label: str, font_name: str, settings: PageSettings, show_header: bool = True
+    *,
+    label: str,
+    font_name: str,
+    settings: PageSettings,
+    show_header: bool = True,
+    outline_entries_by_page: dict[int, List[OutlineEntry]] | None = None,
 ):
     """Create an onPage callback that renders page number and range.
 
@@ -60,6 +65,7 @@ def _on_page_factory(
         font_name: Font name for page numbers.
         settings: Page settings.
         show_header: Whether to draw the page number and range label.
+        outline_entries_by_page: Optional mapping of outline entries by page number.
     Returns:
         onPage callback function.
     """
@@ -67,6 +73,12 @@ def _on_page_factory(
     def draw(canvas, doc):
         canvas.saveState()
         canvas.bookmarkPage(f"page-{doc.page}")
+        _add_outline_entries(
+            canvas=canvas,
+            page=doc.page,
+            outline_entries_by_page=outline_entries_by_page,
+        )
+        _draw_notes_lines(canvas=canvas, settings=settings)
         if show_header:
             canvas.setFont(font_name, 9)
             y = settings.page_height - settings.margin_top + 8
@@ -78,12 +90,17 @@ def _on_page_factory(
 
 
 def _page_templates(
-    *, page_slices: Sequence[PageSlice], settings: PageSettings, font_name: str
+    *,
+    page_slices: Sequence[PageSlice],
+    outline_entries: dict[int, List[OutlineEntry]] | None,
+    settings: PageSettings,
+    font_name: str,
 ) -> List[PageTemplate]:
     """Build PageTemplate objects for TOC and content pages.
 
     Args:
         page_slices: Pages to render.
+        outline_entries: Optional outline entries keyed by page.
         settings: Page settings.
         font_name: Font name for page numbers.
     Returns:
@@ -95,7 +112,12 @@ def _page_templates(
     # ]
     for slice_ in page_slices:
         templates.append(
-            _content_template(slice_=slice_, settings=settings, font_name=font_name)
+            _content_template(
+                slice_=slice_,
+                settings=settings,
+                font_name=font_name,
+                outline_entries=outline_entries,
+            )
         )
     return templates
 
@@ -131,7 +153,11 @@ def _toc_template(*, settings: PageSettings, font_name: str) -> PageTemplate:
 
 
 def _content_template(
-    *, slice_: PageSlice, settings: PageSettings, font_name: str
+    *,
+    slice_: PageSlice,
+    settings: PageSettings,
+    font_name: str,
+    outline_entries: dict[int, List[OutlineEntry]] | None = None,
 ) -> PageTemplate:
     """Return a content page template for a PageSlice.
 
@@ -139,6 +165,7 @@ def _content_template(
         slice_: Page slice to render.
         settings: Page settings.
         font_name: Font name for page numbers.
+        outline_entries: Optional outline entries keyed by page.
     Returns:
         PageTemplate for the content page.
     """
@@ -154,8 +181,67 @@ def _content_template(
             font_name=font_name,
             settings=settings,
             show_header=not suppress_header,
+            outline_entries_by_page=outline_entries,
         ),
     )
+
+
+def _add_outline_entries(
+    *,
+    canvas,
+    page: int,
+    outline_entries_by_page: dict[int, List[OutlineEntry]] | None,
+) -> None:
+    """Add outline entries for the current page.
+
+    Args:
+        canvas: ReportLab canvas instance.
+        page: Current page number.
+        outline_entries_by_page: Optional mapping of outline entries by page.
+    Returns:
+        None.
+    """
+
+    if not outline_entries_by_page:
+        return
+    for entry in outline_entries_by_page.get(page, []):
+        canvas.bookmarkPage(entry.bookmark)
+        canvas.addOutlineEntry(
+            entry.title,
+            entry.bookmark,
+            level=entry.level,
+            closed=entry.closed,
+        )
+
+
+def _draw_notes_lines(*, canvas, settings: PageSettings) -> None:
+    """Draw lined note columns on the left and right margins.
+
+    Args:
+        canvas: ReportLab canvas instance.
+        settings: Page settings with notes configuration.
+    Returns:
+        None.
+    """
+
+    if not settings.notes_enabled:
+        return
+    left_width = settings.margin_left
+    right_width = settings.margin_right
+    if left_width <= 0 or right_width <= 0:
+        return
+    canvas.setLineWidth(settings.notes_line_width)
+    canvas.setStrokeColor(settings.notes_line_color)
+    left_x0 = settings.notes_outer_margin
+    left_x1 = max(left_x0, left_width - settings.notes_inner_margin)
+    right_start = settings.page_width - right_width
+    right_x0 = right_start + settings.notes_inner_margin
+    right_x1 = max(right_x0, settings.page_width - settings.notes_outer_margin)
+    y = settings.page_height - settings.margin_top
+    while y >= settings.margin_bottom:
+        canvas.line(left_x0, y, left_x1, y)
+        canvas.line(right_x0, y, right_x1, y)
+        y -= settings.notes_line_spacing
 
 
 def _content_frames(*, slice_: PageSlice, settings: PageSettings) -> List[Frame]:

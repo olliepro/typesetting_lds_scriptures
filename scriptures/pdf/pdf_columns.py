@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Sequence, Tuple
 
+from pyphen import Pyphen
 from reportlab.lib import colors
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import Flowable, Paragraph, Spacer, Table
@@ -95,6 +96,7 @@ def _layout_columns(
     max_height: float,
     settings: PageSettings,
     styles: Dict[str, ParagraphStyle],
+    hyphenator: Pyphen,
 ) -> Tuple[TextColumns, float, bool]:
     """Split wrapped lines into two columns with an even line count.
 
@@ -103,12 +105,16 @@ def _layout_columns(
         max_height: Maximum height allowed.
         settings: Page layout settings.
         styles: Style lookup for paragraphs.
+        hyphenator: Hyphenation helper for recombined paragraphs.
     Returns:
         Tuple of (TextColumns, table_height, fits).
     """
 
     columns, table_height = _layout_columns_unfitted(
-        items=items, settings=settings, styles=styles
+        items=items,
+        settings=settings,
+        styles=styles,
+        hyphenator=hyphenator,
     )
     fits = table_height <= max_height
     return columns, table_height, fits
@@ -119,6 +125,7 @@ def _layout_columns_unfitted(
     items: Sequence[FlowItem],
     settings: PageSettings,
     styles: Dict[str, ParagraphStyle],
+    hyphenator: Pyphen,
 ) -> Tuple[TextColumns, float]:
     """Return column layout and height without performing a fit check.
 
@@ -126,6 +133,7 @@ def _layout_columns_unfitted(
         items: FlowItems to split.
         settings: Page layout settings.
         styles: Style lookup for paragraphs.
+        hyphenator: Hyphenation helper for recombined paragraphs.
     Returns:
         Tuple of (TextColumns, table_height).
     """
@@ -133,10 +141,18 @@ def _layout_columns_unfitted(
     weights = [_line_weight(item=item) for item in items]
     split_idx = _split_index_by_weight(weights=weights)
     left_paras = _strip_leading_spacers(
-        flowables=_paragraphs_from_lines(lines=items[:split_idx], styles=styles)
+        flowables=_paragraphs_from_lines(
+            lines=items[:split_idx],
+            styles=styles,
+            hyphenator=hyphenator,
+        )
     )
     right_paras = _strip_leading_spacers(
-        flowables=_paragraphs_from_lines(lines=items[split_idx:], styles=styles)
+        flowables=_paragraphs_from_lines(
+            lines=items[split_idx:],
+            styles=styles,
+            hyphenator=hyphenator,
+        )
     )
     temp_columns = TextColumns(left=left_paras, right=right_paras, height=0.0)
     table = _text_table(columns=temp_columns, settings=settings, extend_separator=False)
@@ -181,6 +197,7 @@ def _layout_text_blocks(
     items: Sequence[FlowItem],
     settings: PageSettings,
     styles: Dict[str, ParagraphStyle],
+    hyphenator: Pyphen,
 ) -> tuple[List[TextBlock], float]:
     """Return text blocks and total height for a slice of FlowItems.
 
@@ -188,6 +205,7 @@ def _layout_text_blocks(
         items: FlowItems to split into blocks.
         settings: Page layout settings.
         styles: Style lookup for paragraphs.
+        hyphenator: Hyphenation helper for recombined paragraphs.
     Returns:
         Tuple of (blocks, total_height).
     """
@@ -200,6 +218,7 @@ def _layout_text_blocks(
             is_full_width=is_full_width,
             settings=settings,
             styles=styles,
+            hyphenator=hyphenator,
         )
         blocks.append(block)
         total += block.height
@@ -291,6 +310,7 @@ def _build_block(
     is_full_width: bool,
     settings: PageSettings,
     styles: Dict[str, ParagraphStyle],
+    hyphenator: Pyphen,
 ) -> TextBlock:
     """Build a TextBlock for the provided items.
 
@@ -299,12 +319,17 @@ def _build_block(
         is_full_width: Whether the block is full width.
         settings: Page layout settings.
         styles: Style lookup for paragraphs.
+        hyphenator: Hyphenation helper for recombined paragraphs.
     Returns:
         TextBlock describing the block layout.
     """
 
     if is_full_width:
-        flowables = _paragraphs_from_lines(lines=items, styles=styles)
+        flowables = _paragraphs_from_lines(
+            lines=items,
+            styles=styles,
+            hyphenator=hyphenator,
+        )
         height = _flowables_height(flowables=flowables, width=settings.body_width)
         return TextBlock(
             kind="full_width",
@@ -314,7 +339,10 @@ def _build_block(
             items=list(items),
         )
     columns, height = _layout_columns_unfitted(
-        items=items, settings=settings, styles=styles
+        items=items,
+        settings=settings,
+        styles=styles,
+        hyphenator=hyphenator,
     )
     return TextBlock(
         kind="columns",

@@ -63,7 +63,12 @@ class PageFitter:
         self.hyphenator = hyphenator
         self.pending_notes = list(pending_notes)
         self.seen_chapters = set(seen_chapters)
-        self.cache = LayoutCache(items=items, settings=settings, styles=styles)
+        self.cache = LayoutCache(
+            items=items,
+            settings=settings,
+            styles=styles,
+            hyphenator=hyphenator,
+        )
         self.available_text = _available_text_height(
             header_height=header_height, settings=settings
         )

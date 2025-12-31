@@ -8,7 +8,7 @@ from typing import Callable
 
 _ZERO_WIDTH = re.compile("[\u200b\u200c\u200d\u2060]")
 _NON_BREAKING_SPACES = re.compile("[\u00a0\u202f]")
-_SPACES_AROUND_DASH = re.compile(r"\s*([\u2013\u2014-])\s*")
+_SPACES_AROUND_DASH = re.compile(r"(\s*)([\u2013\u2014-])(\s*)")
 _HAIR_SPACE = "\u200a"
 
 
@@ -35,7 +35,10 @@ def tighten_dashes(value: str) -> str:
     """
 
     def replace(match: re.Match[str]) -> str:
-        return f"{match.group(1)}{_HAIR_SPACE}"
+        leading, dash, trailing = match.groups()
+        if dash == "-" and not (leading or trailing):
+            return dash
+        return f"{dash}{_HAIR_SPACE}"
 
     return _SPACES_AROUND_DASH.sub(replace, value)
 

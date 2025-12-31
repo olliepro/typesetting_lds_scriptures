@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import re
-from typing import List, Sequence
+from typing import Dict, List, Sequence
 
 from reportlab.platypus import Flowable, Paragraph
 
@@ -19,6 +19,7 @@ class FlowItem:
         paragraph: Flowable to render for this line.
         height: Pre-measured height for the flowable.
         line_html: HTML fragment for the wrapped line.
+        source_html: Original hyphenated HTML for the full paragraph/segment.
         style_name: Style key used for rebuilding paragraphs later.
         first_line: Whether this line starts a paragraph/segment.
         standard_work: Standard work slug for provenance.
@@ -33,6 +34,7 @@ class FlowItem:
     paragraph: Flowable
     height: float
     line_html: str
+    source_html: str
     style_name: str
     first_line: bool
     standard_work: str
@@ -113,6 +115,65 @@ class PageSlice:
     template_id: str
     footnote_height: float
     seen_chapters_in: set[tuple[str, str]]
+
+
+@dataclass(slots=True)
+class PageLookup:
+    """Page lookup for scripture references.
+
+    Args:
+        chapters: Mapping of (book_slug, chapter) to page number.
+        verses: Mapping of (book_slug, chapter, verse) to page number.
+    """
+
+    chapters: Dict[tuple[str, str], int]
+    verses: Dict[tuple[str, str, str], int]
+
+    def page_for(
+        self, *, book_slug: str, chapter: str, verse: str | None
+    ) -> int | None:
+        """Return the page number for a scripture reference.
+
+        Args:
+            book_slug: Book slug for the reference.
+            chapter: Chapter identifier for the reference.
+            verse: Optional verse identifier for the reference.
+        Returns:
+            Page number when known, otherwise None.
+
+        Example:
+            >>> lookup = PageLookup(chapters={("genesis", "1"): 2}, verses={})
+            >>> lookup.page_for(book_slug="genesis", chapter="1", verse=None)
+            2
+        """
+
+        if verse:
+            page = self.verses.get((book_slug, chapter, verse))
+            if page is not None:
+                return page
+            match = re.match(r"^(\d+)", verse)
+            if match:
+                page = self.verses.get((book_slug, chapter, match.group(1)))
+                if page is not None:
+                    return page
+        return self.chapters.get((book_slug, chapter))
+
+
+@dataclass(slots=True)
+class OutlineEntry:
+    """Outline entry for PDF bookmarks.
+
+    Args:
+        title: Display text shown in the PDF outline panel.
+        bookmark: Named destination target for the outline entry.
+        level: Outline nesting level (0 = top-level).
+        closed: Whether the outline node should be collapsed by default.
+    """
+
+    title: str
+    bookmark: str
+    level: int
+    closed: bool = False
 
 
 @dataclass(slots=True)

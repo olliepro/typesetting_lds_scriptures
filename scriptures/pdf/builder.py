@@ -12,7 +12,7 @@ from reportlab.platypus import BaseDocTemplate, Paragraph
 from tqdm import tqdm
 
 from ..layout_utils import measure_height
-from ..models import Book, FootnoteEntry, StandardWork
+from ..models import Book, Chapter, FootnoteEntry, StandardWork
 from .pdf_footnotes import (
     FootnoteRowText,
     _code_map_from_metadata,
@@ -21,15 +21,16 @@ from .pdf_footnotes import (
     _footnote_table as _footnote_table_internal,
     _refresh_footnotes,
 )
-from .pdf_pagination import _chapter_page_map, paginate_book, paginate_books
+from .pdf_pagination import _page_lookup, paginate_book, paginate_books
 from .pdf_settings import PageSettings, build_styles, register_palatino
 from .pdf_story import _page_templates, _story_for_pages, _toc_flowables
 from .pdf_text import _line_fragments, _paragraph_from_html, _verse_markup
-from .pdf_types import FootnoteRow
+from .pdf_types import FootnoteRow, OutlineEntry, PageLookup
 
 __all__ = [
     "PageSettings",
     "build_pdf",
+    "build_pdfs_by_work",
     "build_styles",
     "limit_books",
     "measure_height",
@@ -68,11 +69,13 @@ class _PageBundle:
     Args:
         page_slices: PageSlice objects in render order.
         chapter_pages: Mapping of (book_slug, chapter) to page numbers.
+        outline_entries: Mapping of page number to outline entries.
         # toc_flow: Table-of-contents flowables.
     """
 
     page_slices: List
     chapter_pages: Dict[tuple[str, str], int]
+    outline_entries: Dict[int, List[OutlineEntry]]
     # toc_flow: List
 
 
@@ -129,6 +132,53 @@ def build_pdf(
     _render_pdf(doc=doc, bundle=bundle, font_setup=font_setup)
 
 
+def build_pdfs_by_work(
+    *,
+    corpus: Sequence[StandardWork],
+    output_dir: Path,
+    output_prefix: str,
+    settings: PageSettings | None = None,
+    max_books: int | None = None,
+    metadata: Dict | None = None,
+) -> List[Path]:
+    """Render each standard work into its own PDF.
+
+    Args:
+        corpus: Sequence of ``StandardWork`` instances to typeset.
+        output_dir: Directory for the generated PDFs.
+        output_prefix: Filename prefix used for each work.
+        settings: Optional ``PageSettings`` override.
+        max_books: Per-standard-work cap used when not rendering full works.
+        metadata: Optional JSON metadata produced by the scraper for code/footnote lookups.
+    Returns:
+        List of output paths for the generated PDFs.
+
+    Example:
+        >>> build_pdfs_by_work(
+        ...     corpus=[],
+        ...     output_dir=Path("output"),
+        ...     output_prefix="scriptures",
+        ... )  # doctest: +SKIP
+    """
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    outputs: List[Path] = []
+    for work in corpus:
+        if not work.books:
+            continue
+        output_path = output_dir / f"{output_prefix}-{work.slug}.pdf"
+        build_pdf(
+            corpus=[work],
+            output_path=output_path,
+            settings=settings,
+            max_books=max_books,
+            metadata=metadata,
+            include_books=None,
+        )
+        outputs.append(output_path)
+    return outputs
+
+
 def _prepare_fonts(*, settings: PageSettings | None) -> _FontSetup:
     """Return configured fonts/styles for PDF output.
 
@@ -165,10 +215,14 @@ def _prepare_pages(
         styles=font_setup.styles,
         settings=font_setup.settings,
     )
-    chapter_pages = _chapter_page_map(pages=page_slices)
+    page_lookup = _page_lookup(pages=page_slices, toc_pages=0)
+    chapter_pages = page_lookup.chapters
+    outline_entries = _outline_entries_by_page(
+        corpus=corpus, chapter_pages=chapter_pages
+    )
     _refresh_footnotes(
         page_slices=page_slices,
-        chapter_pages=chapter_pages,
+        page_lookup=page_lookup,
         code_map=_code_map_from_metadata(metadata=metadata),
         styles=font_setup.styles,
         hyphenator=Pyphen(lang="en_US"),
@@ -182,6 +236,7 @@ def _prepare_pages(
     return _PageBundle(
         page_slices=page_slices,
         chapter_pages=chapter_pages,
+        outline_entries=outline_entries,
         # toc_flow=toc_flow,
     )
 
@@ -202,6 +257,7 @@ def _render_pdf(
     doc.addPageTemplates(
         _page_templates(
             page_slices=bundle.page_slices,
+            outline_entries=bundle.outline_entries,
             settings=font_setup.settings,
             font_name=font_setup.font_name,
         )
@@ -256,6 +312,307 @@ def _paginate_corpus(
     return page_slices
 
 
+def _outline_entries_by_page(
+    *,
+    corpus: Sequence[StandardWork],
+    chapter_pages: Dict[tuple[str, str], int],
+) -> Dict[int, List[OutlineEntry]]:
+    """Return outline entries grouped by page number.
+
+    Args:
+        corpus: Standard works to include.
+        chapter_pages: Mapping of (book_slug, chapter) to page numbers.
+    Returns:
+        Mapping of page number to outline entries.
+
+    Example:
+        >>> _outline_entries_by_page(corpus=[], chapter_pages={})
+        {}
+    """
+
+    entries_by_page: Dict[int, List[OutlineEntry]] = {}
+    for work in corpus:
+        _work_outline_entries(
+            entries_by_page=entries_by_page,
+            work=work,
+            chapter_pages=chapter_pages,
+        )
+    return entries_by_page
+
+
+def _work_outline_entries(
+    *,
+    entries_by_page: Dict[int, List[OutlineEntry]],
+    work: StandardWork,
+    chapter_pages: Dict[tuple[str, str], int],
+) -> int | None:
+    """Add outline entries for a standard work and return its first page.
+
+    Args:
+        entries_by_page: Mapping of pages to outline entries.
+        work: Standard work to process.
+        chapter_pages: Mapping of (book_slug, chapter) to page numbers.
+    Returns:
+        First page number for the work, when available.
+    """
+
+    if work.slug == "doctrine-and-covenants":
+        return _dc_outline_entries(
+            entries_by_page=entries_by_page,
+            work=work,
+            chapter_pages=chapter_pages,
+        )
+    entries = entries_by_page
+    work_page: int | None = None
+    for book in work.books:
+        book_page: int | None = None
+        for chapter in book.chapters:
+            page = chapter_pages.get((book.slug, chapter.number))
+            if page is None:
+                continue
+            if book_page is None:
+                book_page = page
+                if work_page is None:
+                    work_page = page
+                    _add_work_entry(entries=entries, work=work, page=page)
+                _add_book_entry(entries=entries, book=book, page=page)
+            _add_chapter_entry(entries=entries, book=book, chapter=chapter, page=page)
+    return work_page
+
+
+def _dc_outline_entries(
+    *,
+    entries_by_page: Dict[int, List[OutlineEntry]],
+    work: StandardWork,
+    chapter_pages: Dict[tuple[str, str], int],
+) -> int | None:
+    """Add Doctrine and Covenants outline entries without book grouping.
+
+    Args:
+        entries_by_page: Mapping of pages to outline entries.
+        work: Doctrine and Covenants standard work.
+        chapter_pages: Mapping of (book_slug, chapter) to page numbers.
+    Returns:
+        First page number for the work, when available.
+    """
+
+    entries = entries_by_page
+    work_page: int | None = None
+    for book in work.books:
+        for chapter in book.chapters:
+            page = chapter_pages.get((book.slug, chapter.number))
+            if page is None:
+                continue
+            if work_page is None:
+                work_page = page
+                _add_work_entry(entries=entries, work=work, page=page)
+            _add_dc_entry(entries=entries, book=book, chapter=chapter, page=page)
+    return work_page
+
+
+def _chapter_outline_title(*, chapter: Chapter, book: Book) -> str:
+    """Return the outline label for a chapter entry.
+
+    Args:
+        chapter: Chapter being labeled.
+        book: Book containing the chapter.
+    Returns:
+        Outline label string.
+    """
+
+    title = chapter.title.strip() if chapter.title else ""
+    if title:
+        return title
+    return f"{_book_outline_title(book=book)} {chapter.number}"
+
+
+def _dc_chapter_title(*, book: Book, chapter: Chapter) -> str:
+    """Return the outline label for Doctrine and Covenants entries.
+
+    Args:
+        book: Book containing the chapter.
+        chapter: Chapter to label.
+    Returns:
+        Outline title string.
+    """
+
+    if book.slug in {"official-declarations", "official-declaration"}:
+        return f"Official Declaration {chapter.number}"
+    return f"Section {chapter.number}"
+
+
+def _book_outline_title(*, book: Book) -> str:
+    """Return a friendly outline title for a book.
+
+    Args:
+        book: Book to label.
+    Returns:
+        Friendly book label.
+    """
+
+    name = book.name.strip() if book.name else ""
+    if not name or name == book.slug or "-" in name:
+        return _title_from_slug(slug=book.slug)
+    return name
+
+
+def _title_from_slug(*, slug: str) -> str:
+    """Return a title-cased label from a slug.
+
+    Args:
+        slug: Hyphenated slug string.
+    Returns:
+        Title-cased label.
+    """
+
+    small_words = {"and", "of", "the", "to", "a", "an", "in", "on", "for", "by"}
+    parts = [part for part in slug.split("-") if part]
+    words: List[str] = []
+    for idx, part in enumerate(parts):
+        if part.isdigit():
+            words.append(part)
+            continue
+        if idx > 0 and part in small_words:
+            words.append(part)
+            continue
+        words.append(part.capitalize())
+    return " ".join(words)
+
+
+def _add_work_entry(
+    *, entries: Dict[int, List[OutlineEntry]], work: StandardWork, page: int
+) -> None:
+    """Append a work-level outline entry.
+
+    Args:
+        entries: Mapping of pages to outline entries.
+        work: Standard work to label.
+        page: Page number for the outline entry.
+    Returns:
+        None.
+    """
+
+    _append_outline_entry(
+        entries_by_page=entries,
+        page=page,
+        entry=OutlineEntry(
+            title=work.name,
+            bookmark=_outline_bookmark(prefix="work", key=work.slug),
+            level=0,
+        ),
+    )
+
+
+def _add_book_entry(
+    *, entries: Dict[int, List[OutlineEntry]], book: Book, page: int
+) -> None:
+    """Append a book-level outline entry.
+
+    Args:
+        entries: Mapping of pages to outline entries.
+        book: Book to label.
+        page: Page number for the outline entry.
+    Returns:
+        None.
+    """
+
+    _append_outline_entry(
+        entries_by_page=entries,
+        page=page,
+        entry=OutlineEntry(
+            title=_book_outline_title(book=book),
+            bookmark=_outline_bookmark(prefix="book", key=book.slug),
+            level=1,
+        ),
+    )
+
+
+def _add_chapter_entry(
+    *, entries: Dict[int, List[OutlineEntry]], book: Book, chapter: Chapter, page: int
+) -> None:
+    """Append a chapter-level outline entry.
+
+    Args:
+        entries: Mapping of pages to outline entries.
+        book: Book containing the chapter.
+        chapter: Chapter to label.
+        page: Page number for the outline entry.
+    Returns:
+        None.
+    """
+
+    _append_outline_entry(
+        entries_by_page=entries,
+        page=page,
+        entry=OutlineEntry(
+            title=_chapter_outline_title(chapter=chapter, book=book),
+            bookmark=_outline_bookmark(
+                prefix="chapter", key=f"{book.slug}-{chapter.number}"
+            ),
+            level=2,
+        ),
+    )
+
+
+def _add_dc_entry(
+    *, entries: Dict[int, List[OutlineEntry]], book: Book, chapter: Chapter, page: int
+) -> None:
+    """Append a Doctrine and Covenants outline entry.
+
+    Args:
+        entries: Mapping of pages to outline entries.
+        book: Book containing the chapter.
+        chapter: Chapter to label.
+        page: Page number for the outline entry.
+    Returns:
+        None.
+    """
+
+    _append_outline_entry(
+        entries_by_page=entries,
+        page=page,
+        entry=OutlineEntry(
+            title=_dc_chapter_title(book=book, chapter=chapter),
+            bookmark=_outline_bookmark(
+                prefix="dc", key=f"{book.slug}-{chapter.number}"
+            ),
+            level=1,
+        ),
+    )
+
+
+def _append_outline_entry(
+    *,
+    entries_by_page: Dict[int, List[OutlineEntry]],
+    page: int,
+    entry: OutlineEntry,
+) -> None:
+    """Append an outline entry to a page bucket.
+
+    Args:
+        entries_by_page: Mapping of pages to outline entries.
+        page: Page number for the outline entry.
+        entry: Outline entry to add.
+    Returns:
+        None.
+    """
+
+    entries_by_page.setdefault(page, []).append(entry)
+
+
+def _outline_bookmark(*, prefix: str, key: str) -> str:
+    """Return a stable outline bookmark name.
+
+    Args:
+        prefix: Namespace for the bookmark.
+        key: Unique key within the namespace.
+    Returns:
+        Bookmark name string.
+    """
+
+    return f"outline-{prefix}-{key}"
+
+
 def _build_doc(*, output_path: Path, settings: PageSettings) -> BaseDocTemplate:
     """Return a BaseDocTemplate configured with page geometry.
 
@@ -282,7 +639,7 @@ def _footnote_rows(
     styles: Dict[str, ParagraphStyle],
     hyphenator: Pyphen,
     settings: PageSettings,
-    page_lookup: Dict[tuple[str, str], int] | None = None,
+    page_lookup: PageLookup | None = None,
     code_map: Dict[str, str] | None = None,
     seen_chapters: set[tuple[str, str]] | None = None,
 ) -> tuple[
@@ -298,7 +655,7 @@ def _footnote_rows(
         styles: Paragraph styles.
         hyphenator: Hyphenation helper.
         settings: Page settings.
-        page_lookup: Optional page lookup.
+        page_lookup: Optional page lookup for chapter/verse references.
         code_map: Optional scripture code map.
         seen_chapters: Optional set of (book_slug, chapter) pairs already labeled.
     Returns:

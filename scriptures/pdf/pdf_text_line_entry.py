@@ -69,11 +69,13 @@ def _full_width_header(
     blocks: List[Paragraph] = []
     for block_type, html in chapter.header_blocks:
         style = styles["header"] if "title" in block_type else styles["preface"]
+        hyphenate_words = block_type != "book-title"
         para = _paragraph_from_html(
             html=html,
             style=style,
             hyphenator=hyphenator,
             insert_hair_space=True,
+            hyphenate_words=hyphenate_words,
         )
         if getattr(style, "backColor", None) is None:
             debug_style = ParagraphStyle(

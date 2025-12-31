@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, List, Sequence
 
+from pyphen import Pyphen
 from reportlab.lib.styles import ParagraphStyle
 
 from .pdf_columns import _layout_text_blocks
@@ -33,11 +34,13 @@ class LayoutCache:
         items: FlowItems to cache.
         settings: Page settings.
         styles: Paragraph styles.
+        hyphenator: Hyphenation helper for recombined paragraphs.
     """
 
     items: Sequence[FlowItem]
     settings: PageSettings
     styles: Dict[str, ParagraphStyle]
+    hyphenator: Pyphen
     _block_cache: Dict[tuple[int, int], tuple[List[TextBlock], float]] = field(
         default_factory=dict
     )
@@ -61,6 +64,7 @@ class LayoutCache:
             items=self.items[start_idx : start_idx + count],
             settings=self.settings,
             styles=self.styles,
+            hyphenator=self.hyphenator,
         )
         self._block_cache[key] = (blocks, height)
         return blocks, height

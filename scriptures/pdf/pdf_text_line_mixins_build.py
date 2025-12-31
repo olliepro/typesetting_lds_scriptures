@@ -309,6 +309,9 @@ class _BuildMixin(_LineBuilderBase):
                 self._handle_plain_paragraph(para_dict=para_dict)
         finally:
             self.prev_paragraph_category = category
+            self.prev_historical_narrative = self._is_jsh_historical_narrative(
+                para_dict=para_dict
+            )
 
     def _collect_chapter_subtitles(self) -> List[str]:
         """Return chapter subtitle HTML strings.

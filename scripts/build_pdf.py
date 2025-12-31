@@ -14,7 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from scriptures.ingest import build_corpus
 from scriptures.models import StandardWork
-from scriptures.pdf_builder import build_pdf
+from scriptures.pdf_builder import build_pdfs_by_work, select_books
 from scriptures.scraper import ScrapeConfig, run_scraper
 
 _WORK_ALIASES = {
@@ -75,9 +75,10 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--max-books",
         type=int,
-        default=2,
+        default=None,
         help=(
-            "Limit the number of books per standard work (ignored when --books is used)."
+            "Limit the number of books per standard work (ignored when --books is used). "
+            "Defaults to all books."
         ),
     )
     parser.add_argument(
@@ -232,6 +233,74 @@ def _resolve_include_books(
     return _unique_ordered([*work_books, *book_books])
 
 
+def _book_slugs_for_works(
+    *, corpus: Sequence[StandardWork], work_slugs: Sequence[str]
+) -> set[str]:
+    """Return book slugs for the selected standard works.
+
+    Args:
+        corpus: Parsed scripture corpus.
+        work_slugs: Standard work slugs to scan.
+    Returns:
+        Set of book slugs for the requested works.
+    """
+
+    wanted = {slug.lower() for slug in work_slugs}
+    return {
+        book.slug
+        for work in corpus
+        if work.slug in wanted
+        for book in work.books
+    }
+
+
+def _filter_tokens_for_excluded_works(
+    *,
+    tokens: Sequence[str] | None,
+    excluded_slugs: set[str],
+    excluded_book_slugs: set[str],
+) -> List[str] | None:
+    """Return tokens with excluded works and books removed.
+
+    Args:
+        tokens: Input tokens for books or works.
+        excluded_slugs: Work slugs to exclude.
+        excluded_book_slugs: Book slugs to exclude.
+    Returns:
+        Filtered token list, or None when empty.
+    """
+
+    if not tokens:
+        return None
+    filtered: List[str] = []
+    for token in _normalize_tokens(tokens=tokens):
+        slug = _work_slug(token)
+        if slug in excluded_slugs or token in excluded_book_slugs:
+            continue
+        filtered.append(token)
+    return filtered or None
+
+
+def _exclude_works(
+    *, corpus: Sequence[StandardWork], excluded_slugs: Sequence[str]
+) -> List[StandardWork]:
+    """Return a corpus without excluded standard works.
+
+    Args:
+        corpus: Parsed scripture corpus.
+        excluded_slugs: Slugs of works to exclude.
+    Returns:
+        Filtered corpus list.
+
+    Example:
+        >>> _exclude_works(corpus=[], excluded_slugs=["jst-appendix"])
+        []
+    """
+
+    excluded = {slug.lower() for slug in excluded_slugs}
+    return [work for work in corpus if work.slug not in excluded]
+
+
 def main() -> None:
     """Render ``output/scriptures-sample.pdf`` using scraped or cached data.
 
@@ -251,19 +320,39 @@ def main() -> None:
         metadata_path=metadata_path,
         max_chapters=args.max_chapters,
     )
+    excluded_slugs = {"jst-appendix"}
+    excluded_book_slugs = _book_slugs_for_works(
+        corpus=corpus, work_slugs=excluded_slugs
+    )
+    book_tokens = _filter_tokens_for_excluded_works(
+        tokens=args.books,
+        excluded_slugs=excluded_slugs,
+        excluded_book_slugs=excluded_book_slugs,
+    )
+    work_tokens = _filter_tokens_for_excluded_works(
+        tokens=args.works,
+        excluded_slugs=excluded_slugs,
+        excluded_book_slugs=excluded_book_slugs,
+    )
     include_books = _resolve_include_books(
         corpus=corpus,
-        book_slugs=args.books,
-        work_slugs=args.works,
+        book_slugs=book_tokens,
+        work_slugs=work_tokens,
     )
+    corpus = _exclude_works(corpus=corpus, excluded_slugs=sorted(excluded_slugs))
+    if include_books:
+        corpus = select_books(corpus=corpus, book_slugs=include_books, max_books=None)
+        max_books = None
+    else:
+        max_books = args.max_books
     args.output_file.parent.mkdir(parents=True, exist_ok=True)
     metadata = json.loads(metadata_path.read_text()) if metadata_path.exists() else {}
-    build_pdf(
+    build_pdfs_by_work(
         corpus=corpus,
-        output_path=args.output_file,
-        max_books=None if include_books else args.max_books,
+        output_dir=args.output_file.parent,
+        output_prefix=args.output_file.stem,
+        max_books=max_books,
         metadata=metadata,
-        include_books=include_books,
     )
 
 

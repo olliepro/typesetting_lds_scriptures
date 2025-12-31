@@ -5,14 +5,15 @@ from __future__ import annotations
 from typing import Iterable, List, Sequence
 import re
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, NavigableString, Tag
 from pyphen import Pyphen
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import Paragraph
 
 from ..models import Verse
 from .pdf_constants import DASH_CHARS, HAIR_SPACE
-from ..text import hyphenate_html
+from ..text import hyphenate_html, insert_hair_space_html
+from .pdf_hyphenation_overrides import PDF_HYPHENATION_OVERRIDES
 
 
 def _verse_markup(verse: Verse) -> str:
@@ -47,26 +48,42 @@ def _sup_font_content(*, text_html: str, italic: bool) -> str:
 
 
 def _paragraph_from_html(
-    *, html: str, style: ParagraphStyle, hyphenator: Pyphen, insert_hair_space: bool
+    *,
+    html: str,
+    style: ParagraphStyle,
+    hyphenator: Pyphen,
+    insert_hair_space: bool,
+    hyphenate_words: bool = True,
 ) -> Paragraph:
-    """Create a Paragraph with hyphenated text.
+    """Create a Paragraph with optional hyphenation.
 
     Args:
         html: Raw HTML fragment to wrap.
         style: Paragraph style.
         hyphenator: Hyphenation helper.
         insert_hair_space: Whether to insert hair spaces after hyphenation.
+        hyphenate_words: Whether to insert soft hyphens into long words.
     Returns:
         Paragraph instance with hyphenated HTML.
     """
 
     normalized = _normalize_breaks(html=html)
-    sanitized = _collapse_space_after_sup(_strip_attributes(normalized))
-    hyphenated = hyphenate_html(
-        sanitized, hyphenator, insert_hair_space=insert_hair_space
-    )
-    para = Paragraph(hyphenated, style)
-    setattr(para, "_orig_html", hyphenated)
+    sanitized = _strip_attributes(normalized)
+    sanitized = _merge_prefix_superscripts(html=sanitized)
+    sanitized = _collapse_space_after_sup(sanitized)
+    if hyphenate_words:
+        processed = hyphenate_html(
+            html=sanitized,
+            dic=hyphenator,
+            insert_hair_space=insert_hair_space,
+            overrides=PDF_HYPHENATION_OVERRIDES,
+        )
+    elif insert_hair_space:
+        processed = insert_hair_space_html(sanitized)
+    else:
+        processed = sanitized
+    para = Paragraph(processed, style)
+    setattr(para, "_orig_html", processed)
     return para
 
 
@@ -296,6 +313,39 @@ def _collapse_space_after_sup(html: str) -> str:
     return re.sub(r"</sup>\s+(?=[A-Za-z0-9])", "</sup>", html)
 
 
+def _merge_prefix_superscripts(*, html: str) -> str:
+    """Merge prefix superscripts into the following word tag.
+
+    Args:
+        html: HTML fragment to normalize.
+    Returns:
+        HTML string with prefix <sup> tags moved inside following word tags.
+    """
+
+    soup = BeautifulSoup(html, "html.parser")
+    for sup in list(soup.find_all("sup")):
+        next_node = sup.next_sibling
+        if isinstance(next_node, NavigableString) and not str(next_node).strip():
+            continue
+        if isinstance(next_node, Tag):
+            if next_node.name == "span" and not next_node.get_text(strip=True):
+                continue
+            next_text = next_node.get_text(strip=False)
+            if not next_text or not next_text.lstrip()[:1].isalpha():
+                continue
+            next_node.insert(0, sup.extract())
+            continue
+        if isinstance(next_node, NavigableString):
+            text = str(next_node)
+            if not text or not text.lstrip()[:1].isalpha():
+                continue
+            wrapper = soup.new_tag("span")
+            wrapper.append(sup.extract())
+            wrapper.append(NavigableString(text))
+            next_node.replace_with(wrapper)
+    return soup.decode_contents()
+
+
 def _apply_hebrew_font(*, html: str, hebrew_font: str | None) -> str:
     """Wrap Hebrew characters with a font tag for a glyph-capable font.
 
@@ -393,13 +443,20 @@ def _line_fragments(*, para: Paragraph, width: float) -> List[str]:
     if bl_para is None:
         return [para.text]
     base_font = getattr(para.style, "fontName", "")
+    base_font_size = float(getattr(para.style, "fontSize", 0.0) or 0.0)
+    simple_line = getattr(bl_para, "kind", 0) == 0
     lines: List[str] = []
     line_items = getattr(bl_para, "lines", None)
     if line_items is None:
         return [para.text]
     for line in line_items:
         words = _extract_line_words(line=line)
-        html_line = _line_html_from_words(words=words, base_font=base_font)
+        html_line = _line_html_from_words(
+            words=words,
+            base_font=base_font,
+            base_font_size=base_font_size,
+            simple_line=simple_line,
+        )
         if not html_line and hasattr(line, "text"):
             html_line = str(getattr(line, "text", "")) or ""
         html_line = _collapse_space_after_sup(html_line)
@@ -422,6 +479,8 @@ def _extract_line_words(*, line: object) -> List[object]:
     return list(words_seq) if words_seq is not None else []
 
 
+
+
 def _fallback_word_sequence(*, line: object) -> Iterable[object]:
     """Return a fallback iterable of words from a line object.
 
@@ -441,28 +500,44 @@ def _fallback_word_sequence(*, line: object) -> Iterable[object]:
     return []
 
 
-def _line_html_from_words(*, words: Sequence[object], base_font: str) -> str:
+def _line_html_from_words(
+    *, words: Sequence[object], base_font: str, base_font_size: float, simple_line: bool
+) -> str:
     """Return HTML for a line based on word fragments.
 
     Args:
         words: Sequence of word-like objects.
         base_font: Base font name for the paragraph.
+        base_font_size: Base font size for the paragraph.
+        simple_line: True when the paragraph uses simple line wrapping.
     Returns:
         HTML string for the line.
     """
 
-    word_html = [_word_markup(word=w, base_font=base_font) for w in words]
-    if all(isinstance(ws, str) and " " not in ws for ws in word_html):
+    word_html = [
+        _word_markup(
+            word=w,
+            base_font=base_font,
+            base_font_size=base_font_size,
+        )
+        for w in words
+    ]
+    word_html = [fragment for fragment in word_html if fragment != ""]
+    if not word_html:
+        return ""
+    simple_words = all(isinstance(word, str) for word in words)
+    if simple_line or simple_words:
         return " ".join(word_html)
     return "".join(word_html)
 
 
-def _word_markup(*, word: object, base_font: str) -> str:
+def _word_markup(*, word: object, base_font: str, base_font_size: float) -> str:
     """Return HTML markup for a word fragment.
 
     Args:
         word: Word-like object from ReportLab.
         base_font: Base font name for the paragraph.
+        base_font_size: Base font size for the paragraph.
     Returns:
         HTML fragment for the word.
     """
@@ -473,7 +548,12 @@ def _word_markup(*, word: object, base_font: str) -> str:
     txt = _wrap_anchor(txt=txt, word=word)
     txt = _wrap_bold_italic(txt=txt, word=word)
     txt = _wrap_rise(txt=txt, word=word)
-    return _wrap_font(txt=txt, word=word, base_font=base_font)
+    return _wrap_font(
+        txt=txt,
+        word=word,
+        base_font=base_font,
+        base_font_size=base_font_size,
+    )
 
 
 def _word_text(*, word: object) -> str:
@@ -550,23 +630,39 @@ def _wrap_rise(*, txt: str, word: object) -> str:
     return txt
 
 
-def _wrap_font(*, txt: str, word: object, base_font: str) -> str:
-    """Wrap text in a font tag when it uses a non-base font.
+def _wrap_font(
+    *,
+    txt: str,
+    word: object,
+    base_font: str,
+    base_font_size: float,
+) -> str:
+    """Wrap text in a font tag when it uses a non-base font or size.
 
     Args:
         txt: Word text.
         word: Word-like object.
         base_font: Base font name.
+        base_font_size: Base font size.
     Returns:
         HTML string with font tag when required.
     """
 
     font_name = getattr(word, "fontName", "")
-    if not font_name or font_name == base_font:
+    font_size = getattr(word, "fontSize", None)
+    attrs: dict[str, str] = {}
+    if font_name and font_name not in _font_family_variants(base_font=base_font):
+        attrs["name"] = font_name
+    if (
+        isinstance(font_size, (int, float))
+        and base_font_size > 0
+        and abs(float(font_size) - base_font_size) > 0.01
+    ):
+        attrs["size"] = f"{float(font_size):g}"
+    if not attrs:
         return txt
-    if font_name in _font_family_variants(base_font=base_font):
-        return txt
-    return f'<font name="{font_name}">{txt}</font>'
+    attr_text = " ".join(f'{key}="{value}"' for key, value in attrs.items())
+    return f"<font {attr_text}>{txt}</font>"
 
 
 def _font_family_variants(*, base_font: str) -> set[str]:

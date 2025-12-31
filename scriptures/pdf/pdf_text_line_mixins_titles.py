@@ -86,6 +86,7 @@ class _TitlesMixin(_LineBuilderBase):
                 style_name="declaration_title",
                 paragraph_key=paragraph_key,
                 full_width=self._is_full_width_paragraph(para_dict=para_dict),
+                hyphenate_words=False,
             )
             return
         pretitle_htmls, title_html = _split_small_prefix(html=raw_html)
@@ -116,6 +117,7 @@ class _TitlesMixin(_LineBuilderBase):
             style_name="book_title",
             paragraph_key=paragraph_key,
             full_width=full_width,
+            hyphenate_words=False,
         )
 
     def _is_declaration_excerpt_title(self, *, html: str) -> bool:
@@ -147,6 +149,7 @@ class _TitlesMixin(_LineBuilderBase):
             style_name="book_subtitle",
             paragraph_key=paragraph_key,
             full_width=self._is_full_width_paragraph(para_dict=para_dict),
+            hyphenate_words=False,
         )
 
     def _handle_chapter_title(self, *, para_dict: Dict) -> None:
@@ -307,6 +310,7 @@ class _TitlesMixin(_LineBuilderBase):
                 style=subtitle_clean,
                 gap_between=0.0,
                 gap_after=0.0,
+                hyphenate_words=False,
             )
         )
         content.append(self._title_paragraph(html=title_html, style=title_clean))
@@ -318,6 +322,7 @@ class _TitlesMixin(_LineBuilderBase):
                 style=subtitle_clean,
                 gap_between=subtitle_gap,
                 gap_after=0.0,
+                hyphenate_words=False,
             )
         )
         return title_style, subtitle_style, content
@@ -355,6 +360,7 @@ class _TitlesMixin(_LineBuilderBase):
             style=style,
             hyphenator=self.hyphenator,
             insert_hair_space=True,
+            hyphenate_words=False,
         )
 
     def _book_title_group_styles(
@@ -386,6 +392,7 @@ class _TitlesMixin(_LineBuilderBase):
         style: ParagraphStyle,
         gap_between: float,
         gap_after: float,
+        hyphenate_words: bool,
     ) -> List[Flowable]:
         """Return subtitle flowables with optional spacer gaps.
 
@@ -394,6 +401,7 @@ class _TitlesMixin(_LineBuilderBase):
             style: Paragraph style for subtitles.
             gap_between: Gap between subtitle lines.
             gap_after: Gap after the final subtitle line.
+            hyphenate_words: Whether to insert soft hyphens into long words.
         Returns:
             List of subtitle Paragraphs and Spacers.
         """
@@ -409,6 +417,7 @@ class _TitlesMixin(_LineBuilderBase):
                     style=style,
                     hyphenator=self.hyphenator,
                     insert_hair_space=True,
+                    hyphenate_words=hyphenate_words,
                 )
             )
         if htmls and gap_after:

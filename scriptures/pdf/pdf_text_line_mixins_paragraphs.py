@@ -145,17 +145,20 @@ class _ParagraphsMixin(_LineBuilderBase):
                 full_width=full_width,
             )
         wrap_width = self.column_width if not full_width else self.body_width
-        _, line_htmls = _wrap_paragraph(
+        para, line_htmls = _wrap_paragraph(
             html=study_html,
             style=self.styles["study"],
             hyphenator=self.hyphenator,
             width=wrap_width,
         )
+        source_html = getattr(para, "_orig_html", study_html)
         grouped = self._maybe_merge_with_heading(
             line_htmls=line_htmls, full_width=full_width
         )
         self._append_study_lines(
             line_htmls=line_htmls,
+            source_html=source_html,
+            total_lines=len(line_htmls),
             paragraph_key=paragraph_key,
             grouped_with_heading=grouped,
             full_width=full_width,
@@ -320,6 +323,8 @@ class _ParagraphsMixin(_LineBuilderBase):
         self,
         *,
         line_htmls: Sequence[str],
+        source_html: str,
+        total_lines: int,
         paragraph_key: str,
         grouped_with_heading: bool,
         full_width: bool,
@@ -328,6 +333,8 @@ class _ParagraphsMixin(_LineBuilderBase):
 
         Args:
             line_htmls: Study line HTML fragments.
+            source_html: Original hyphenated HTML for the study paragraph.
+            total_lines: Total line count for the study paragraph.
             paragraph_key: Key for paragraph grouping.
             grouped_with_heading: Whether first line was merged with heading.
         Returns:
@@ -343,11 +350,14 @@ class _ParagraphsMixin(_LineBuilderBase):
                 self._flow_item(
                     paragraph=line_para,
                     line_html=line_html,
+                    source_html=source_html,
                     style_name="study",
                     first_line=idx == 0 and not grouped_with_heading,
                     verse=paragraph_key,
                     footnotes=[],
                     full_width=full_width,
+                    verse_line_index=idx,
+                    verse_line_count=max(1, total_lines),
                 )
             )
 
@@ -384,6 +394,7 @@ class _ParagraphsMixin(_LineBuilderBase):
         style_name: str,
         paragraph_key: str,
         full_width: bool,
+        hyphenate_words: bool = True,
     ) -> None:
         """Append a single FlowItem for a paragraph.
 
@@ -393,6 +404,7 @@ class _ParagraphsMixin(_LineBuilderBase):
             style_name: Style key for later reconstruction.
             paragraph_key: Key for paragraph grouping.
             full_width: Whether to render across full body width.
+            hyphenate_words: Whether to insert soft hyphens into long words.
         Returns:
             None.
         """
@@ -402,12 +414,14 @@ class _ParagraphsMixin(_LineBuilderBase):
             style=style,
             hyphenator=self.hyphenator,
             insert_hair_space=True,
+            hyphenate_words=hyphenate_words,
         )
         line_html = getattr(paragraph, "_orig_html", html)
         self.items.append(
             self._flow_item(
                 paragraph=paragraph,
                 line_html=line_html,
+                source_html=line_html,
                 style_name=style_name,
                 first_line=True,
                 verse=paragraph_key,
@@ -437,12 +451,13 @@ class _ParagraphsMixin(_LineBuilderBase):
         """
 
         width = self.column_width if not full_width else self.body_width
-        _, line_htmls = _wrap_paragraph(
+        para, line_htmls = _wrap_paragraph(
             html=html,
             style=style,
             hyphenator=self.hyphenator,
             width=width,
         )
+        source_html = getattr(para, "_orig_html", html)
         total_lines = len(line_htmls)
         for idx, line_html in enumerate(line_htmls):
             line_para = Paragraph(line_html, style)
@@ -450,6 +465,7 @@ class _ParagraphsMixin(_LineBuilderBase):
                 self._flow_item(
                     paragraph=line_para,
                     line_html=line_html,
+                    source_html=source_html,
                     style_name=style_name,
                     first_line=idx == 0,
                     verse=paragraph_key,
@@ -492,6 +508,7 @@ class _ParagraphsMixin(_LineBuilderBase):
         *,
         paragraph: Flowable,
         line_html: str,
+        source_html: str | None = None,
         style_name: str,
         first_line: bool,
         verse: str | None,
@@ -506,6 +523,7 @@ class _ParagraphsMixin(_LineBuilderBase):
         Args:
             paragraph: Flowable to render.
             line_html: HTML for the line.
+            source_html: Original hyphenated HTML for the paragraph/segment.
             style_name: Style key.
             first_line: Whether this line starts a paragraph/segment.
             verse: Verse number or paragraph key.
@@ -522,6 +540,7 @@ class _ParagraphsMixin(_LineBuilderBase):
             paragraph=paragraph,
             height=measure_height(flowable=paragraph, width=width),
             line_html=line_html,
+            source_html=source_html or line_html,
             style_name=style_name,
             first_line=first_line,
             standard_work=self.chapter.standard_work,

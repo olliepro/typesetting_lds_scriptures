@@ -51,6 +51,63 @@ class PageSettings:
     separator_line_color: colors.Color = colors.lightgrey
     separator_line_width: float = 0.8
     debug_borders: bool = False
+    notes_enabled: bool = True
+    notes_width_fraction: float = 1 / 3
+    notes_line_spacing: float = 18.0 * PAGE_SCALE
+    notes_outer_margin: float = 18.0 * PAGE_SCALE
+    notes_inner_margin: float = 18.0 * PAGE_SCALE
+    notes_line_width: float = 0.6
+    notes_line_color: colors.Color = colors.Color(0, 0, 0, alpha=0.18)
+    content_page_width: float | None = None
+
+    def __post_init__(self) -> None:
+        """Apply notes column expansion to page geometry.
+
+        Returns:
+            None.
+
+        Example:
+            >>> settings = PageSettings(notes_enabled=True)
+            >>> settings.page_width > settings.content_width()
+            True
+        """
+
+        if self.content_page_width is None:
+            self.content_page_width = self.page_width
+        if not self.notes_enabled:
+            return
+        notes_width = self.notes_width()
+        self.page_width = self.content_page_width + 2 * notes_width
+        self.margin_left += notes_width
+        self.margin_right += notes_width
+
+    def content_width(self) -> float:
+        """Return the width of the original content page.
+
+        Returns:
+            Width in points.
+
+        Example:
+            >>> settings = PageSettings()
+            >>> settings.content_width() > 0
+            True
+        """
+
+        return self.content_page_width if self.content_page_width is not None else self.page_width
+
+    def notes_width(self) -> float:
+        """Return the width of each notes column.
+
+        Returns:
+            Notes column width in points.
+
+        Example:
+            >>> settings = PageSettings()
+            >>> settings.notes_width() > 0
+            True
+        """
+
+        return self.content_width() * self.notes_width_fraction
 
     @property
     def body_width(self) -> float:

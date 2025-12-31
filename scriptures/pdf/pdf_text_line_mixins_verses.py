@@ -8,7 +8,12 @@ from reportlab.platypus import Paragraph
 
 from ..models import FootnoteEntry, Verse
 from .pdf_text_line_base import _LineBuilderBase
-from .pdf_text_html import _ensure_verse_number_span, _split_on_breaks, _verse_markup, _wrap_paragraph
+from .pdf_text_html import (
+    _ensure_verse_number_span,
+    _split_on_breaks,
+    _verse_markup,
+    _wrap_paragraph,
+)
 from .pdf_text_line_footnotes import _collect_line_footnotes, _footnote_map
 
 
@@ -118,12 +123,13 @@ class _VersesMixin(_LineBuilderBase):
         """
 
         wrap_width = self.body_width if full_width else self.column_width
-        _, line_htmls = _wrap_paragraph(
+        para, line_htmls = _wrap_paragraph(
             html=segment_html,
             style=self.styles["body"],
             hyphenator=self.hyphenator,
             width=wrap_width,
         )
+        source_html = getattr(para, "_orig_html", segment_html)
         total_lines = len(line_htmls)
         for line_idx, line_html in enumerate(line_htmls):
             self._append_segment_line(
@@ -132,6 +138,7 @@ class _VersesMixin(_LineBuilderBase):
                 line_idx=line_idx,
                 total_lines=total_lines,
                 line_html=line_html,
+                source_html=source_html,
                 footnote_map=footnote_map,
                 assigned_letters=assigned_letters,
                 full_width=full_width,
@@ -145,6 +152,7 @@ class _VersesMixin(_LineBuilderBase):
         line_idx: int,
         total_lines: int,
         line_html: str,
+        source_html: str,
         footnote_map: Dict[str, FootnoteEntry],
         assigned_letters: set[str],
         full_width: bool,
@@ -157,6 +165,7 @@ class _VersesMixin(_LineBuilderBase):
             line_idx: Line index within the segment.
             total_lines: Total line count for the segment.
             line_html: HTML fragment for the line.
+            source_html: Original hyphenated HTML for the segment.
             footnote_map: Mapping of footnote letters to entries.
             assigned_letters: Set tracking already assigned letters.
         Returns:
@@ -179,6 +188,7 @@ class _VersesMixin(_LineBuilderBase):
             self._flow_item(
                 paragraph=line_para,
                 line_html=line_html,
+                source_html=source_html,
                 style_name=style_name,
                 first_line=is_first_line,
                 verse=verse.number,

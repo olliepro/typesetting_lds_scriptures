@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Dict, Iterable, List, Sequence
+from urllib.parse import parse_qs, urlparse
 import html as htmllib
 import re
 
@@ -19,8 +20,10 @@ from ..models import Book, FootnoteEntry
 from .pdf_settings import PageSettings
 from .pdf_text import _collapse_space_after_sup
 from .pdf_text_html import _line_fragments
-from .pdf_types import FlowItem, FootnoteRow, VerseRange
+from .pdf_types import FlowItem, FootnoteRow, PageLookup, VerseRange
+from .pdf_constants import DASH_CHARS, HAIR_SPACE
 from .pdf_footnotes_labels import _range_label
+from .pdf_hyphenation_overrides import PDF_HYPHENATION_OVERRIDES
 from ..text import hyphenate_html
 
 
@@ -127,7 +130,7 @@ def _rows_cache_key(
     styles: Dict[str, ParagraphStyle],
     hyphenator: Pyphen,
     settings: PageSettings,
-    page_lookup: Dict[tuple[str, str], int] | None,
+    page_lookup: PageLookup | None,
     code_map: Dict[str, str] | None,
     seen_chapters: set[tuple[str, str]] | None,
 ) -> tuple[int, int, int, int, int, tuple[int, ...], tuple[tuple[str, str], ...]]:
@@ -138,7 +141,7 @@ def _rows_cache_key(
         styles: Paragraph styles.
         hyphenator: Hyphenation helper.
         settings: Page settings.
-        page_lookup: Page lookup mapping.
+        page_lookup: Page lookup mapping for chapter/verse references.
         code_map: Scripture code mapping.
         seen_chapters: Chapters already labeled.
     Returns:
@@ -160,7 +163,7 @@ def _rewrite_cache_key(
     *,
     html: str,
     hyphenator: Pyphen,
-    page_lookup: Dict[tuple[str, str], int] | None,
+    page_lookup: PageLookup | None,
     code_map: Dict[str, str] | None,
 ) -> tuple[str, int, int, int]:
     """Return a cache key for rewritten footnote HTML.
@@ -168,7 +171,7 @@ def _rewrite_cache_key(
     Args:
         html: Footnote HTML fragment.
         hyphenator: Hyphenation helper.
-        page_lookup: Page lookup mapping.
+        page_lookup: Page lookup mapping for chapter/verse references.
         code_map: Scripture code mapping.
     Returns:
         Tuple suitable for cache lookup.
@@ -301,7 +304,7 @@ def _footnote_rows(
     styles: Dict[str, ParagraphStyle],
     hyphenator: Pyphen,
     settings: PageSettings,
-    page_lookup: Dict[tuple[str, str], int] | None = None,
+    page_lookup: PageLookup | None = None,
     code_map: Dict[str, str] | None = None,
     seen_chapters: set[tuple[str, str]] | None = None,
 ) -> tuple[List[FootnoteRow], List[float], List[int], set[tuple[str, str]]]:
@@ -312,7 +315,7 @@ def _footnote_rows(
         styles: Paragraph styles for footnotes.
         hyphenator: Hyphenation helper.
         settings: Page settings.
-        page_lookup: Optional mapping for page references.
+        page_lookup: Optional mapping for chapter/verse references.
         code_map: Optional map of scripture codes to slugs.
         seen_chapters: Chapters already labeled.
     Returns:
@@ -364,7 +367,7 @@ def _footnote_raw_rows(
     *,
     entries: Sequence[FootnoteEntry],
     hyphenator: Pyphen,
-    page_lookup: Dict[tuple[str, str], int] | None,
+    page_lookup: PageLookup | None,
     code_map: Dict[str, str] | None,
     seen_chapters: set[tuple[str, str]] | None,
 ) -> tuple[List[FootnoteRowText], set[tuple[str, str]]]:
@@ -373,7 +376,7 @@ def _footnote_raw_rows(
     Args:
         entries: Footnote entries to include.
         hyphenator: Hyphenation helper.
-        page_lookup: Optional page lookup map.
+        page_lookup: Optional page lookup map for chapter/verse references.
         code_map: Optional scripture code map.
         seen_chapters: Chapters already labeled.
     Returns:
@@ -415,7 +418,7 @@ def _entry_segments(
     *,
     entry: FootnoteEntry,
     hyphenator: Pyphen,
-    page_lookup: Dict[tuple[str, str], int] | None,
+    page_lookup: PageLookup | None,
     code_map: Dict[str, str] | None,
 ) -> List[str]:
     """Return rewritten, hyphenated segments for a footnote entry.
@@ -423,7 +426,7 @@ def _entry_segments(
     Args:
         entry: Footnote entry.
         hyphenator: Hyphenation helper.
-        page_lookup: Optional page lookup map.
+        page_lookup: Optional page lookup map for chapter/verse references.
         code_map: Optional scripture code map.
     Returns:
         List of HTML segments.
@@ -556,7 +559,7 @@ def _rewrite_entry_text(
     *,
     html: str,
     hyphenator: Pyphen,
-    page_lookup: Dict[tuple[str, str], int] | None,
+    page_lookup: PageLookup | None,
     code_map: Dict[str, str] | None,
 ) -> str:
     """Return cached rewritten footnote HTML.
@@ -564,7 +567,7 @@ def _rewrite_entry_text(
     Args:
         html: Raw footnote HTML.
         hyphenator: Hyphenation helper.
-        page_lookup: Optional page lookup map.
+        page_lookup: Optional page lookup map for chapter/verse references.
         code_map: Optional scripture code map.
     Returns:
         Rewritten HTML string.
@@ -593,7 +596,7 @@ def _rewrite_entry_text_uncached(
     *,
     html: str,
     hyphenator: Pyphen,
-    page_lookup: Dict[tuple[str, str], int] | None,
+    page_lookup: PageLookup | None,
     code_map: Dict[str, str] | None,
 ) -> str:
     """Convert entry HTML into hyphenated text with adjusted links.
@@ -601,7 +604,7 @@ def _rewrite_entry_text_uncached(
     Args:
         html: Raw footnote HTML.
         hyphenator: Hyphenation helper.
-        page_lookup: Optional page lookup map.
+        page_lookup: Optional page lookup map for chapter/verse references.
         code_map: Optional scripture code map.
     Returns:
         Rewritten HTML string.
@@ -613,46 +616,52 @@ def _rewrite_entry_text_uncached(
         _update_anchor_links(soup=soup, page_lookup=page_lookup, code_map=code_map)
         html_out = soup.decode_contents()
     html_out = _normalize_entry_html(html_out=html_out)
-    return hyphenate_html(html_out, hyphenator)
+    return hyphenate_html(
+        html=html_out,
+        dic=hyphenator,
+        insert_hair_space=False,
+        overrides=PDF_HYPHENATION_OVERRIDES,
+    )
 
 
 def _update_anchor_links(
     *,
     soup: BeautifulSoup,
-    page_lookup: Dict[tuple[str, str], int],
+    page_lookup: PageLookup,
     code_map: Dict[str, str],
 ) -> None:
     """Update anchor hrefs to page references when possible.
 
     Args:
         soup: BeautifulSoup object to update.
-        page_lookup: Mapping of (book_slug, chapter) to page number.
+        page_lookup: Mapping of chapters/verses to page numbers.
         code_map: Mapping of church URI codes to book slugs.
     Returns:
         None.
     """
 
     for anchor in soup.find_all("a", href=True):
-        target = _extract_book_chapter(href=anchor["href"])
+        target = _extract_scripture_target(href=anchor["href"])
         if not target:
             if anchor["href"].startswith("#"):
                 anchor.unwrap()
             continue
-        book_slug = code_map.get(target[0])
+        book_code, chapter, verse = target
+        book_slug = code_map.get(book_code)
         if not book_slug:
             continue
-        page = page_lookup.get((book_slug, target[1]))
-        if page:
+        page = page_lookup.page_for(book_slug=book_slug, chapter=chapter, verse=verse)
+        if page is not None:
             anchor["href"] = f"#page-{page}"
 
 
-def _extract_book_chapter(*, href: str) -> tuple[str, str] | None:
-    """Pull (book_code, chapter) from a scripture href.
+def _extract_scripture_target(*, href: str) -> tuple[str, str, str | None] | None:
+    """Pull (book_code, chapter, verse) from a scripture href.
 
     Args:
         href: Anchor href to parse.
     Returns:
-        Tuple of (book_code, chapter) or None when parsing fails.
+        Tuple of (book_code, chapter, verse) or None when parsing fails.
     """
 
     parts = [p for p in href.split("/") if p]
@@ -663,8 +672,62 @@ def _extract_book_chapter(*, href: str) -> tuple[str, str] | None:
         return None
     book_code = parts[idx + 2]
     chapter_part = parts[idx + 3] if len(parts) > idx + 3 else ""
-    chapter = chapter_part.split("?")[0]
-    return book_code, chapter
+    chapter_part = chapter_part.split("?")[0].split("#")[0]
+    chapter, verse = _split_chapter_verse(chapter_part=chapter_part)
+    if not chapter:
+        return None
+    if verse is None:
+        verse = _verse_from_href(href=href)
+    return book_code, chapter, verse
+
+
+def _split_chapter_verse(*, chapter_part: str) -> tuple[str, str | None]:
+    """Split a chapter path segment into chapter and verse values.
+
+    Args:
+        chapter_part: Chapter segment from the href path.
+    Returns:
+        Tuple of (chapter, verse) where verse may be None.
+    """
+
+    if "." not in chapter_part:
+        return chapter_part, None
+    chapter, verse_part = chapter_part.split(".", 1)
+    return chapter, _first_verse_token(value=verse_part)
+
+
+def _first_verse_token(*, value: str) -> str | None:
+    """Return the first verse token from a string.
+
+    Args:
+        value: String to search for verse numbers.
+    Returns:
+        Verse token if found, otherwise None.
+    """
+
+    match = re.search(r"\d+[a-z]?", value, flags=re.IGNORECASE)
+    return match.group(0) if match else None
+
+
+def _verse_from_href(*, href: str) -> str | None:
+    """Extract the verse token from href fragment or id parameter.
+
+    Args:
+        href: Anchor href to parse.
+    Returns:
+        Verse token if present, otherwise None.
+    """
+
+    parsed = urlparse(href)
+    if parsed.fragment:
+        verse = _first_verse_token(value=parsed.fragment)
+        if verse:
+            return verse
+    for value in parse_qs(parsed.query).get("id", []):
+        verse = _first_verse_token(value=value)
+        if verse:
+            return verse
+    return None
 
 
 def _normalize_entry_html(*, html_out: str) -> str:
@@ -679,6 +742,8 @@ def _normalize_entry_html(*, html_out: str) -> str:
     html_out = htmllib.unescape(html_out)
     html_out = html_out.replace("\u00a0", " ")
     html_out = _collapse_space_after_sup(html_out)
+    dash_chars = re.escape("".join(DASH_CHARS))
+    html_out = re.sub(rf"([{dash_chars}]){HAIR_SPACE}", r"\1", html_out)
     html_out = re.sub(r"([A-Za-z])<a\b", r"\1 <a", html_out)
     html_out = re.sub(r"\.\s*<a\b", ". <a", html_out)
     html_out = re.sub(r"\b(TG|HEB)\s*(?=[A-Za-z])", r"\1 ", html_out)
@@ -854,7 +919,7 @@ def _footnotes_for_items(*, items: Sequence[FlowItem]) -> List[FootnoteEntry]:
 def _refresh_footnotes(
     *,
     page_slices: Sequence,
-    chapter_pages: Dict[tuple[str, str], int],
+    page_lookup: PageLookup,
     code_map: Dict[str, str],
     styles: Dict[str, ParagraphStyle],
     hyphenator: Pyphen,
@@ -864,7 +929,7 @@ def _refresh_footnotes(
 
     Args:
         page_slices: PageSlice objects to update.
-        chapter_pages: Mapping of (book_slug, chapter) to page numbers.
+        page_lookup: Mapping of chapters/verses to page numbers.
         code_map: Mapping of scripture codes to book slugs.
         styles: Paragraph styles.
         hyphenator: Hyphenation helper.
@@ -880,7 +945,7 @@ def _refresh_footnotes(
             styles=styles,
             hyphenator=hyphenator,
             settings=settings,
-            page_lookup=chapter_pages,
+            page_lookup=page_lookup,
             code_map=code_map,
             seen_chapters=seed_seen,
         )
@@ -910,4 +975,3 @@ def _code_map_from_metadata(*, metadata: Dict | None) -> Dict[str, str]:
             code = uri.rstrip("/").split("/")[-1]
             mapping[code] = book_slug
     return mapping
-
