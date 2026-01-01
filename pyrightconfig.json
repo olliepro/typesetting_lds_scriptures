@@ -7,7 +7,6 @@
     "external",
     "output",
     "data",
-    ".venv",
-    "scripts/debug_*"
+    ".venv"
   ]
 }

@@ -1,6 +1,6 @@
 data/
+external/
 __pycache__/
 scriptures/todo.txt
-scripts/debug*.py
 output/*.pdf
 *.tsv

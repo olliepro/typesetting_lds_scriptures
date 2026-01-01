@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Sequence
-
-from reportlab.lib.styles import ParagraphStyle
+from typing import List, Sequence
 from reportlab.platypus import (
     Frame,
     NextPageTemplate,
     PageBreak,
     PageTemplate,
-    Paragraph,
     Spacer,
 )
 
@@ -18,36 +15,6 @@ from .pdf_columns import _leading_book_title_flowable, _text_table
 from .pdf_footnotes import _footnote_table
 from .pdf_settings import PageSettings
 from .pdf_types import OutlineEntry, PageSlice
-from ..models import StandardWork
-
-
-def _toc_flowables(
-    *,
-    corpus: Sequence[StandardWork],
-    chapter_pages: dict[tuple[str, str], int],
-    styles: Dict[str, ParagraphStyle],
-) -> List[Paragraph]:
-    """Build simple table of contents paragraphs.
-
-    Args:
-        corpus: Standard works to include.
-        chapter_pages: Mapping of (book_slug, chapter) to page numbers.
-        styles: Paragraph styles.
-    Returns:
-        List of TOC Paragraphs.
-    """
-
-    entries: List[Paragraph] = [Paragraph("<b>Contents</b>", styles["header"])]
-    for work in corpus:
-        entries.append(Paragraph(work.name, styles["preface"]))
-        for book in work.books:
-            for chapter in book.chapters:
-                page = chapter_pages.get((book.slug, chapter.number))
-                if not page:
-                    continue
-                label = f"{book.name} {chapter.number}"
-                entries.append(Paragraph(f"{label} ... {page}", styles["body"]))
-    return entries
 
 
 def _on_page_factory(
@@ -96,7 +63,7 @@ def _page_templates(
     settings: PageSettings,
     font_name: str,
 ) -> List[PageTemplate]:
-    """Build PageTemplate objects for TOC and content pages.
+    """Build PageTemplate objects for content pages.
 
     Args:
         page_slices: Pages to render.
@@ -108,8 +75,6 @@ def _page_templates(
     """
 
     templates: List[PageTemplate] = []
-    #     _toc_template(settings=settings, font_name=font_name)
-    # ]
     for slice_ in page_slices:
         templates.append(
             _content_template(
@@ -120,36 +85,6 @@ def _page_templates(
             )
         )
     return templates
-
-
-def _toc_template(*, settings: PageSettings, font_name: str) -> PageTemplate:
-    """Return the TOC page template.
-
-    Args:
-        settings: Page settings.
-        font_name: Font name for page numbers.
-    Returns:
-        PageTemplate for the table of contents.
-    """
-
-    toc_frame = Frame(
-        settings.margin_left,
-        settings.margin_bottom,
-        settings.body_width,
-        settings.body_height,
-        leftPadding=0,
-        rightPadding=0,
-        topPadding=0,
-        bottomPadding=0,
-        id="toc-frame",
-    )
-    return PageTemplate(
-        id="toc",
-        frames=[toc_frame],
-        onPage=_on_page_factory(
-            label="Contents", font_name=font_name, settings=settings
-        ),
-    )
 
 
 def _content_template(
@@ -314,24 +249,20 @@ def _page_flowables(*, slice_: PageSlice, settings: PageSettings) -> List:
 def _story_for_pages(
     *,
     page_slices: Sequence[PageSlice],
-    # toc_flow: Sequence[Paragraph],
     settings: PageSettings,
 ) -> List:
     """Assemble the platypus story.
 
     Args:
         page_slices: Pages to render.
-        # toc_flow: Table of contents flowables.
         settings: Page settings.
     Returns:
         List of story flowables.
     """
 
     story: List = []
-    # story.extend(toc_flow)
     if page_slices:
         story.append(NextPageTemplate(page_slices[0].template_id))
-    # story.append(PageBreak())
     story.extend(_story_for_slices(page_slices=page_slices, settings=settings))
     if story:
         story.pop()

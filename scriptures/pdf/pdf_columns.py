@@ -139,7 +139,7 @@ def _layout_columns_unfitted(
     """
 
     weights = [_line_weight(item=item) for item in items]
-    split_idx = _split_index_by_weight(weights=weights)
+    split_idx = _split_index_by_weight_trimmed(items=items, weights=weights)
     left_paras = _strip_leading_spacers(
         flowables=_paragraphs_from_lines(
             lines=items[:split_idx],
@@ -388,6 +388,76 @@ def _line_weight(*, item: FlowItem) -> int:
         except Exception:
             return 1
     return 1
+
+
+def _leading_trim_weights(
+    *, items: Sequence[FlowItem], weights: Sequence[int]
+) -> List[int]:
+    """Return leading spacer weights for each start index.
+
+    Args:
+        items: FlowItems in order.
+        weights: Weights aligned with items.
+    Returns:
+        List of leading spacer weights indexed by start position.
+    """
+
+    assert len(items) == len(weights)
+    trimmed = [0] * (len(items) + 1)
+    running = 0
+    for idx in range(len(items) - 1, -1, -1):
+        if _is_empty_lead(flowable=items[idx].paragraph):
+            running += weights[idx]
+            trimmed[idx] = running
+        else:
+            running = 0
+            trimmed[idx] = 0
+    return trimmed
+
+
+def _split_index_by_weight_trimmed(
+    *, items: Sequence[FlowItem], weights: Sequence[int]
+) -> int:
+    """Return split index balancing weights after spacer trimming.
+
+    Args:
+        items: FlowItems to split.
+        weights: Weights aligned with items.
+    Returns:
+        Index at which to split the list.
+
+    Example:
+        >>> _split_index_by_weight_trimmed(items=[], weights=[])
+        0
+    """
+
+    if not items:
+        return 0
+    assert len(items) == len(weights)
+    prefix = [0]
+    for weight in weights:
+        prefix.append(prefix[-1] + weight)
+    total = prefix[-1]
+    trimmed = _leading_trim_weights(items=items, weights=weights)
+    left_trim_limit = trimmed[0]
+    best_idx = 1
+    best_score = (float("inf"), 1)
+    left_has_trim = left_trim_limit > 0
+    for idx in range(1, len(items) + 1):
+        left_trim = min(prefix[idx], left_trim_limit)
+        left_weight = prefix[idx] - left_trim
+        right_weight = (total - prefix[idx]) - trimmed[idx]
+        diff = abs(left_weight - right_weight)
+        right_has_trim = trimmed[idx] > 0
+        bias = int(
+            (left_has_trim and left_weight < right_weight)
+            or (right_has_trim and right_weight < left_weight)
+        )
+        score = (diff, bias)
+        if score < best_score:
+            best_score = score
+            best_idx = idx
+    return best_idx
 
 
 def _split_index_by_weight(*, weights: Sequence[int]) -> int:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Mapping, Protocol, Sequence, cast
+from typing import Dict, List, Protocol, Sequence, cast
 
 from pyphen import Pyphen
 from reportlab.lib.styles import ParagraphStyle
@@ -23,7 +23,7 @@ from .pdf_footnotes import (
 )
 from .pdf_pagination import _page_lookup, paginate_book, paginate_books
 from .pdf_settings import PageSettings, build_styles, register_palatino
-from .pdf_story import _page_templates, _story_for_pages, _toc_flowables
+from .pdf_story import _page_templates, _story_for_pages
 from .pdf_text import _line_fragments, _paragraph_from_html, _verse_markup
 from .pdf_types import FootnoteRow, OutlineEntry, PageLookup
 
@@ -70,13 +70,11 @@ class _PageBundle:
         page_slices: PageSlice objects in render order.
         chapter_pages: Mapping of (book_slug, chapter) to page numbers.
         outline_entries: Mapping of page number to outline entries.
-        # toc_flow: Table-of-contents flowables.
     """
 
     page_slices: List
     chapter_pages: Dict[tuple[str, str], int]
     outline_entries: Dict[int, List[OutlineEntry]]
-    # toc_flow: List
 
 
 class _FootnoteSlice(Protocol):
@@ -136,7 +134,7 @@ def build_pdfs_by_work(
     *,
     corpus: Sequence[StandardWork],
     output_dir: Path,
-    output_prefix: str,
+    output_prefix: str | None = None,
     settings: PageSettings | None = None,
     max_books: int | None = None,
     metadata: Dict | None = None,
@@ -146,7 +144,8 @@ def build_pdfs_by_work(
     Args:
         corpus: Sequence of ``StandardWork`` instances to typeset.
         output_dir: Directory for the generated PDFs.
-        output_prefix: Filename prefix used for each work.
+        output_prefix: Optional filename prefix used for each work. When omitted,
+            output filenames are ``<work.slug>.pdf``.
         settings: Optional ``PageSettings`` override.
         max_books: Per-standard-work cap used when not rendering full works.
         metadata: Optional JSON metadata produced by the scraper for code/footnote lookups.
@@ -157,16 +156,19 @@ def build_pdfs_by_work(
         >>> build_pdfs_by_work(
         ...     corpus=[],
         ...     output_dir=Path("output"),
-        ...     output_prefix="scriptures",
+        ...     output_prefix=None,
         ... )  # doctest: +SKIP
     """
 
     output_dir.mkdir(parents=True, exist_ok=True)
     outputs: List[Path] = []
+    normalized_prefix = output_prefix.strip().strip("-") if output_prefix else ""
+    prefix = normalized_prefix if normalized_prefix else None
     for work in corpus:
         if not work.books:
             continue
-        output_path = output_dir / f"{output_prefix}-{work.slug}.pdf"
+        filename = f"{prefix}-{work.slug}.pdf" if prefix else f"{work.slug}.pdf"
+        output_path = output_dir / filename
         build_pdf(
             corpus=[work],
             output_path=output_path,
@@ -200,14 +202,14 @@ def _prepare_fonts(*, settings: PageSettings | None) -> _FontSetup:
 def _prepare_pages(
     *, corpus: Sequence[StandardWork], font_setup: _FontSetup, metadata: Dict | None
 ) -> _PageBundle:
-    """Paginate corpus, refresh footnotes, and build the TOC flowables.
+    """Paginate corpus and refresh footnotes.
 
     Args:
         corpus: Standard works to paginate.
         font_setup: Font/style setup for layout.
         metadata: Optional scraper metadata.
     Returns:
-        _PageBundle with pages and TOC flowables.
+        _PageBundle with pages and outline metadata.
     """
 
     page_slices = _paginate_corpus(
@@ -228,16 +230,10 @@ def _prepare_pages(
         hyphenator=Pyphen(lang="en_US"),
         settings=font_setup.settings,
     )
-    # toc_flow = _toc_flowables(
-    #     corpus=corpus,
-    #     chapter_pages=chapter_pages,
-    #     styles=font_setup.styles,
-    # )
     return _PageBundle(
         page_slices=page_slices,
         chapter_pages=chapter_pages,
         outline_entries=outline_entries,
-        # toc_flow=toc_flow,
     )
 
 
@@ -264,7 +260,6 @@ def _render_pdf(
     )
     story = _story_for_pages(
         page_slices=bundle.page_slices,
-        # toc_flow=bundle.toc_flow,
         settings=font_setup.settings,
     )
     doc.build(story)

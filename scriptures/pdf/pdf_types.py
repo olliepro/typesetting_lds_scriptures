@@ -62,6 +62,21 @@ class FlowItem:
             return False
         return bool(re.match(r"^\d+[a-z]?$", self.verse))
 
+    def location_label(self) -> str:
+        """Return a concise location label for the item.
+
+        Returns:
+            Label formatted as ``Book Chapter:Verse`` when verse exists.
+
+        Example:
+            >>> item.location_label()
+            '1 Nephi 1:1'
+        """
+
+        if self.is_verse and self.verse:
+            return f"{self.book_name} {self.chapter}:{self.verse}"
+        return f"{self.book_name} {self.chapter}"
+
 
 @dataclass(slots=True)
 class FootnoteRow:

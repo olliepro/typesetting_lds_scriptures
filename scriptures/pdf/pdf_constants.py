@@ -13,3 +13,9 @@ DEBUG_PAGINATION = os.getenv("DEBUG_PAGINATION", "0") not in {
     "false",
     "False",
 }
+DEBUG_LEADING_TRIM = os.getenv("DEBUG_LEADING_TRIM", "0") not in {
+    "",
+    "0",
+    "false",
+    "False",
+}

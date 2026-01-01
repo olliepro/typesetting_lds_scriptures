@@ -1,5 +1,5 @@
 """
-End-to-end helper: scrape (optional) and render a sample PDF.
+End-to-end helper: scrape (optional) and render per-work PDFs.
 """
 
 import argparse
@@ -27,31 +27,44 @@ _WORK_ALIASES = {
     "pgp": "pearl-of-great-price",
     "jst": "jst-appendix",
 }
+_EXCLUDED_WORK_SLUGS = {"jst-appendix"}
 
 
 def _parse_args() -> argparse.Namespace:
     """Return CLI arguments for the build script."""
 
     parser = argparse.ArgumentParser(
-        description="Build output/scriptures-sample.pdf (optionally skipping scrape)."
+        description="Build per-work PDFs in output/ (uses cached data/raw by default)."
     )
     parser.add_argument(
-        "--skip-scrape",
+        "--redo-scrape",
         action="store_true",
-        help="Use existing data/raw instead of scraping fresh content.",
+        help=(
+            "DANGEROUS: re-scrape upstream content and overwrite data/raw. "
+            "DO NOT USE unless you explicitly need a fresh scrape."
+        ),
     )
     parser.add_argument(
         "--raw-root",
         type=Path,
         default=Path("data/raw"),
-        help="Directory containing scraped raw data (used when --skip-scrape is set).",
+        help="Directory containing scraped raw data (and destination for --redo-scrape).",
     )
     parser.add_argument(
-        "--output-file",
+        "--output-dir",
         "-o",
         type=Path,
-        default=Path("output/scriptures-sample.pdf"),
-        help="File path into which the resulting pdf will be saved.",
+        default=Path("output"),
+        help="Directory where per-work PDFs will be written.",
+    )
+    parser.add_argument(
+        "--output-prefix",
+        type=str,
+        default="",
+        help=(
+            "Optional filename prefix for each PDF (e.g., scriptures). "
+            "When omitted, filenames are '<work>.pdf'."
+        ),
     )
     parser.add_argument(
         "--books",
@@ -102,6 +115,187 @@ def _normalize_tokens(tokens: Sequence[str] | None) -> List[str]:
     if not tokens:
         return []
     return [token.strip().lower() for token in tokens if token.strip()]
+
+
+def _normalize_output_prefix(prefix: str | None) -> str | None:
+    """Return a cleaned output prefix or None when empty.
+
+    Args:
+        prefix: Optional prefix string for output filenames.
+    Returns:
+        Cleaned prefix or None when not provided.
+    """
+
+    if not prefix:
+        return None
+    cleaned = prefix.strip().strip("-")
+    return cleaned or None
+
+
+def _metadata_path(*, raw_root: Path) -> Path:
+    """Return the metadata path under the raw root.
+
+    Args:
+        raw_root: Root directory containing scraped JSON.
+    Returns:
+        Path to metadata-scriptures.json under ``raw_root``.
+    """
+
+    return raw_root / "metadata-scriptures.json"
+
+
+def _warn_redo_scrape(*, raw_root: Path) -> None:
+    """Print a warning about re-scraping upstream content.
+
+    Args:
+        raw_root: Destination directory that will be overwritten.
+    Returns:
+        None.
+    """
+
+    banner = "!" * 78
+    message = (
+        f"{banner}\n"
+        "WARNING: --redo-scrape will re-scrape upstream content and overwrite\n"
+        f"{raw_root}.\n"
+        "DO NOT USE THIS for normal PDF builds. Only use it when you\n"
+        "explicitly need a fresh scrape.\n"
+        f"{banner}"
+    )
+    print(message, file=sys.stderr)
+
+
+def _resolve_raw_root(*, args: argparse.Namespace) -> Path:
+    """Return the raw data root, running the scraper when requested.
+
+    Args:
+        args: Parsed CLI arguments.
+    Returns:
+        Path to the raw data directory.
+    """
+
+    if not args.redo_scrape:
+        return args.raw_root
+    _warn_redo_scrape(raw_root=args.raw_root)
+    return run_scraper(cfg=ScrapeConfig(), dest_root=args.raw_root)
+
+
+def _load_corpus(
+    *, raw_root: Path, max_chapters: int | None
+) -> tuple[List[StandardWork], Path]:
+    """Load the scripture corpus and resolve metadata path.
+
+    Args:
+        raw_root: Root directory containing scraped JSON.
+        max_chapters: Optional cap on chapters per book.
+    Returns:
+        Tuple of (corpus, metadata path).
+    """
+
+    metadata_path = _metadata_path(raw_root=raw_root)
+    corpus = build_corpus(
+        raw_root=raw_root,
+        metadata_path=metadata_path,
+        max_chapters=max_chapters,
+    )
+    return corpus, metadata_path
+
+
+def _filter_corpus(
+    *,
+    corpus: Sequence[StandardWork],
+    book_tokens: Sequence[str] | None,
+    work_tokens: Sequence[str] | None,
+    max_books: int | None,
+) -> tuple[List[StandardWork], int | None]:
+    """Return a filtered corpus and resolved max_books value.
+
+    Args:
+        corpus: Parsed scripture corpus.
+        book_tokens: Optional list of book or work tokens.
+        work_tokens: Optional list of standard work tokens.
+        max_books: Optional per-work book cap.
+    Returns:
+        Tuple of (filtered corpus, resolved max_books).
+    """
+
+    excluded_book_slugs = _book_slugs_for_works(
+        corpus=corpus, work_slugs=_EXCLUDED_WORK_SLUGS
+    )
+    filtered_books = _filter_tokens_for_excluded_works(
+        tokens=book_tokens,
+        excluded_slugs=_EXCLUDED_WORK_SLUGS,
+        excluded_book_slugs=excluded_book_slugs,
+    )
+    filtered_works = _filter_tokens_for_excluded_works(
+        tokens=work_tokens,
+        excluded_slugs=_EXCLUDED_WORK_SLUGS,
+        excluded_book_slugs=excluded_book_slugs,
+    )
+    include_books = _resolve_include_books(
+        corpus=corpus,
+        book_slugs=filtered_books,
+        work_slugs=filtered_works,
+    )
+    trimmed_corpus = _exclude_works(
+        corpus=corpus, excluded_slugs=sorted(_EXCLUDED_WORK_SLUGS)
+    )
+    if include_books:
+        return (
+            select_books(
+                corpus=trimmed_corpus,
+                book_slugs=include_books,
+                max_books=None,
+            ),
+            None,
+        )
+    return trimmed_corpus, max_books
+
+
+def _load_metadata(*, metadata_path: Path) -> dict:
+    """Load scraper metadata as a dictionary.
+
+    Args:
+        metadata_path: Path to metadata-scriptures.json.
+    Returns:
+        Parsed metadata dictionary or empty dict when missing.
+    """
+
+    if not metadata_path.exists():
+        return {}
+    return json.loads(metadata_path.read_text())
+
+
+def _render_pdfs(
+    *,
+    corpus: Sequence[StandardWork],
+    metadata_path: Path,
+    output_dir: Path,
+    output_prefix: str | None,
+    max_books: int | None,
+) -> None:
+    """Render per-work PDFs to disk.
+
+    Args:
+        corpus: Scripture corpus to render.
+        metadata_path: Path to scraper metadata JSON.
+        output_dir: Directory for output PDFs.
+        output_prefix: Optional filename prefix for each work PDF.
+        max_books: Optional per-work book cap.
+    Returns:
+        None.
+    """
+
+    resolved_prefix = _normalize_output_prefix(prefix=output_prefix)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    metadata = _load_metadata(metadata_path=metadata_path)
+    build_pdfs_by_work(
+        corpus=corpus,
+        output_dir=output_dir,
+        output_prefix=resolved_prefix,
+        max_books=max_books,
+        metadata=metadata,
+    )
 
 
 def _work_slug(token: str) -> str:
@@ -302,57 +496,30 @@ def _exclude_works(
 
 
 def main() -> None:
-    """Render ``output/scriptures-sample.pdf`` using scraped or cached data.
+    """Render per-work PDFs using scraped or cached data.
 
     Example:
         >>> main()  # doctest: +SKIP
     """
 
     args = _parse_args()
-    if args.skip_scrape:
-        raw_root = args.raw_root
-    else:
-        raw_root = run_scraper(ScrapeConfig())
-
-    metadata_path = Path("data/raw/metadata-scriptures.json")
-    corpus = build_corpus(
+    raw_root = _resolve_raw_root(args=args)
+    corpus, metadata_path = _load_corpus(
         raw_root=raw_root,
-        metadata_path=metadata_path,
         max_chapters=args.max_chapters,
     )
-    excluded_slugs = {"jst-appendix"}
-    excluded_book_slugs = _book_slugs_for_works(
-        corpus=corpus, work_slugs=excluded_slugs
-    )
-    book_tokens = _filter_tokens_for_excluded_works(
-        tokens=args.books,
-        excluded_slugs=excluded_slugs,
-        excluded_book_slugs=excluded_book_slugs,
-    )
-    work_tokens = _filter_tokens_for_excluded_works(
-        tokens=args.works,
-        excluded_slugs=excluded_slugs,
-        excluded_book_slugs=excluded_book_slugs,
-    )
-    include_books = _resolve_include_books(
+    corpus, max_books = _filter_corpus(
         corpus=corpus,
-        book_slugs=book_tokens,
-        work_slugs=work_tokens,
+        book_tokens=args.books,
+        work_tokens=args.works,
+        max_books=args.max_books,
     )
-    corpus = _exclude_works(corpus=corpus, excluded_slugs=sorted(excluded_slugs))
-    if include_books:
-        corpus = select_books(corpus=corpus, book_slugs=include_books, max_books=None)
-        max_books = None
-    else:
-        max_books = args.max_books
-    args.output_file.parent.mkdir(parents=True, exist_ok=True)
-    metadata = json.loads(metadata_path.read_text()) if metadata_path.exists() else {}
-    build_pdfs_by_work(
+    _render_pdfs(
         corpus=corpus,
-        output_dir=args.output_file.parent,
-        output_prefix=args.output_file.stem,
+        metadata_path=metadata_path,
+        output_dir=args.output_dir,
+        output_prefix=args.output_prefix,
         max_books=max_books,
-        metadata=metadata,
     )
 
 

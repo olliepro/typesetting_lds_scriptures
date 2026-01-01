@@ -6,7 +6,8 @@ from typing import Dict, List, Sequence
 
 from pyphen import Pyphen
 from reportlab.lib.styles import ParagraphStyle
-from .pdf_constants import DEBUG_PAGINATION, EPSILON
+from .pdf_constants import DEBUG_LEADING_TRIM, DEBUG_PAGINATION, EPSILON
+from .pdf_columns import _is_empty_lead, _line_weight, _split_index_by_weight_trimmed
 from .pdf_footnotes import (
     _footnote_height,
     _footnote_rows,
@@ -34,6 +35,102 @@ from .pdf_pagination_fit_types import (
 )
 from .pdf_types import FitResult, FlowItem, PagePlan, TextBlock
 from ..models import FootnoteEntry
+
+
+def _leading_trimmed_items(
+    *, items: Sequence[FlowItem], start_idx: int
+) -> List[FlowItem]:
+    """Return leading FlowItems stripped at a column start.
+
+    Args:
+        items: FlowItems for a text block.
+        start_idx: Column start index within items.
+    Returns:
+        Leading items that would be stripped.
+    """
+
+    trimmed: List[FlowItem] = []
+    idx = start_idx
+    while idx < len(items) and _is_empty_lead(flowable=items[idx].paragraph):
+        trimmed.append(items[idx])
+        idx += 1
+    return trimmed
+
+
+def _log_trimmed_column(
+    *,
+    column: str,
+    items: Sequence[FlowItem],
+    trimmed: Sequence[FlowItem],
+    start_idx: int,
+    page_start: int,
+    page_count: int,
+) -> None:
+    """Print a single leading-trim event for a column.
+
+    Args:
+        column: Column label ("left" or "right").
+        items: Items in the text block.
+        trimmed: Leading items stripped from the column.
+        start_idx: Column start index within items.
+        page_start: Global start index for the page slice.
+        page_count: Number of items in the page slice.
+    Returns:
+        None.
+    """
+
+    if not trimmed:
+        return
+    context_idx = min(len(items) - 1, start_idx + len(trimmed))
+    context_item = items[context_idx]
+    style_name = trimmed[0].style_name
+    print(
+        f"[leading-trim] work={context_item.standard_work} page_start={page_start} "
+        f"count={page_count} col={column} trimmed={len(trimmed)} "
+        f"style={style_name} context={context_item.location_label()}"
+    )
+
+
+def _log_leading_trim(
+    *, blocks: Sequence[TextBlock], page_start: int, page_count: int
+) -> None:
+    """Print leading trim events for the final fitted page.
+
+    Args:
+        blocks: Final text blocks for the page.
+        page_start: Global start index for the page slice.
+        page_count: Number of items in the page slice.
+    Returns:
+        None.
+    """
+
+    for block in blocks:
+        if block.kind != "columns" or not block.items:
+            continue
+        weights = [_line_weight(item=item) for item in block.items]
+        split_idx = _split_index_by_weight_trimmed(
+            items=block.items, weights=weights
+        )
+        left_trimmed = _leading_trimmed_items(items=block.items, start_idx=0)
+        right_trimmed = _leading_trimmed_items(
+            items=block.items, start_idx=split_idx
+        )
+        _log_trimmed_column(
+            column="left",
+            items=block.items,
+            trimmed=left_trimmed,
+            start_idx=0,
+            page_start=page_start,
+            page_count=page_count,
+        )
+        _log_trimmed_column(
+            column="right",
+            items=block.items,
+            trimmed=right_trimmed,
+            start_idx=split_idx,
+            page_start=page_start,
+            page_count=page_count,
+        )
 
 
 class PageFitter:
@@ -540,6 +637,12 @@ class PageFitter:
         state = self._place_base_notes(base=base)
         state = self._extend_with_footnotes(state=state)
         state = self._fill_text_only(state=state)
+        if DEBUG_LEADING_TRIM:
+            _log_leading_trim(
+                blocks=state.blocks,
+                page_start=self.start_idx,
+                page_count=state.count,
+            )
         return PagePlan(
             count=state.count,
             blocks=state.blocks,

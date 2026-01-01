@@ -109,7 +109,7 @@ def _strip_trailing_whitespace(node: NavigableString) -> bool:
     prefix = text[: match.start()]
     if not prefix.strip():
         node.extract()
-        return False
+        return True
     node.replace_with(prefix)
     return True
 
@@ -165,15 +165,74 @@ def _small_caps_text_nodes(
     return nodes
 
 
+def _uppercase_span_nodes(*, span: Tag) -> List[Tag | NavigableString]:
+    """Return nodes for an uppercase span with normal font size.
+
+    Args:
+        span: Uppercase span tag to transform.
+    Returns:
+        List of nodes representing the transformed text.
+    Example:
+        >>> soup = BeautifulSoup("", "html.parser")
+        >>> span = soup.new_tag("span")
+        >>> span["class"] = "uppercase"
+        >>> span.append("Jesus")
+        >>> [str(node) for node in _uppercase_span_nodes(span=span)]
+        ['JESUS']
+    """
+
+    nodes: List[Tag | NavigableString] = []
+    for child in list(span.contents):
+        if isinstance(child, NavigableString):
+            nodes.append(NavigableString(str(child).upper()))
+        elif isinstance(child, Tag):
+            child.extract()
+            nodes.append(child)
+    return nodes
+
+
+def _shift_leading_space_after_italics(*, soup: BeautifulSoup) -> None:
+    """Move a leading space after italics into the italic tag.
+
+    Args:
+        soup: Parsed HTML tree to mutate.
+    Returns:
+        None.
+    Example:
+        >>> soup = BeautifulSoup('word <i>in</i> Solomon', 'html.parser')
+        >>> _shift_leading_space_after_italics(soup=soup)
+        >>> soup.decode_contents()
+        'word <i>in </i>Solomon'
+    """
+
+    for tag in list(soup.find_all("i")):
+        next_node = tag.next_sibling
+        if not isinstance(next_node, NavigableString):
+            continue
+        text = str(next_node)
+        if not text.startswith(" "):
+            continue
+        if not tag.get_text().endswith(" "):
+            space_tag = soup.new_tag("span")
+            space_tag.string = " "
+            tag.append(space_tag)
+        remainder = text[1:]
+        if remainder:
+            next_node.replace_with(remainder)
+        else:
+            next_node.extract()
+
+
 def _apply_verse_span_markup(*, html: str) -> str:
     """Convert verse span classes into ReportLab-friendly markup.
 
     Args:
-        html: Verse HTML fragment that may contain ``small-caps`` or
-            ``clarity-word`` span tags.
+        html: Verse HTML fragment that may contain ``small-caps``,
+            ``uppercase``, or ``clarity-word`` span tags.
     Returns:
         HTML with small-caps converted to uppercase text inside a smaller
-        <font> tag and clarity words wrapped in <i> tags.
+        <font> tag, uppercase spans converted to uppercase text, and clarity
+        words wrapped in <i> tags.
     Example:
         >>> _apply_verse_span_markup(html='By the <span class="small-caps">Lord</span>.')  # doctest: +SKIP
         'By the L<font size="9">ORD</font>.'
@@ -197,11 +256,16 @@ def _apply_verse_span_markup(*, html: str) -> str:
         for node in new_nodes:
             span.insert_before(node)
         span.decompose()
+    for span in list(soup.select("span.uppercase")):
+        new_nodes = _uppercase_span_nodes(span=span)
+        for node in new_nodes:
+            span.insert_before(node)
+        span.decompose()
     for span in list(soup.select("span.clarity-word")):
         prev = span.previous_sibling
-        needs_space = False
-        if isinstance(prev, NavigableString):
-            needs_space = _strip_trailing_whitespace(prev)
+        needs_space = isinstance(prev, NavigableString) and _strip_trailing_whitespace(
+            prev
+        )
         if needs_space:
             space_tag = soup.new_tag("span")
             space_tag.string = " "
@@ -210,6 +274,7 @@ def _apply_verse_span_markup(*, html: str) -> str:
         for child in list(span.contents):
             italic_tag.append(child.extract())
         span.replace_with(italic_tag)
+    _shift_leading_space_after_italics(soup=soup)
     return soup.decode_contents()
 
 

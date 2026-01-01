@@ -8,7 +8,6 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from textwrap import dedent
-from typing import Iterable, List
 
 import subprocess
 
@@ -23,7 +22,7 @@ class ScrapeConfig:
     Example:
         >>> cfg = ScrapeConfig()
         >>> cfg.use_test_data
-        True
+        False
 
     Set ``skip_existing_chapters`` to reuse chapter JSON already written under
     ``external/python-scripture-scraper/_output``.
@@ -37,7 +36,13 @@ class ScrapeConfig:
 
 
 def _config_text(cfg: ScrapeConfig) -> str:
-    """Render the upstream config.py content for the given settings."""
+    """Render the upstream config.py content for the given settings.
+
+    Args:
+        cfg: Scraper configuration values.
+    Returns:
+        Rendered config.py file contents.
+    """
 
     return (
         dedent(
@@ -73,22 +78,42 @@ def _config_text(cfg: ScrapeConfig) -> str:
 
 
 def write_config(cfg: ScrapeConfig, scraper_root: Path = DEFAULT_SCRAPER_ROOT) -> Path:
-    """Rewrite the upstream config.py to match our desired settings."""
+    """Rewrite the upstream config.py to match our desired settings.
+
+    Args:
+        cfg: Scraper configuration values.
+        scraper_root: Root directory for the upstream scraper checkout.
+    Returns:
+        Path to the written config.py file.
+    """
 
     target = scraper_root / "resources" / "config.py"
-    target.write_text(_config_text(cfg), encoding="utf-8")
+    target.write_text(_config_text(cfg=cfg), encoding="utf-8")
     return target
 
 
 def _copy_json_output(scraper_root: Path, dest_root: Path) -> Path:
-    """Copy en-json output into a stable data directory."""
+    """Copy en-json output and metadata into a stable data directory.
 
-    src = scraper_root / "_output" / "en-json"
-    dest_root.mkdir(parents=True, exist_ok=True)
+    Args:
+        scraper_root: Root directory for the upstream scraper checkout.
+        dest_root: Destination directory for the copied JSON payload.
+    Returns:
+        Path to the copied JSON directory.
+    """
+
+    output_root = scraper_root / "_output"
+    src = output_root / "en-json"
+    assert src.exists(), f"Missing scraper output directory: {src}"
     if dest_root.exists():
-        shutil.rmtree(dest_root)
-        dest_root.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(src, dest_root, dirs_exist_ok=True)
+        shutil.rmtree(path=dest_root)
+    dest_root.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(src=src, dst=dest_root, dirs_exist_ok=True)
+    metadata_paths = list(output_root.glob("metadata-*.json"))
+    metadata_path = output_root / "metadata-scriptures.json"
+    assert metadata_path.exists(), f"Missing scraper metadata: {metadata_path}"
+    for metadata in metadata_paths:
+        shutil.copy2(src=metadata, dst=dest_root / metadata.name)
     return dest_root
 
 
@@ -97,8 +122,12 @@ def run_scraper(
     scraper_root: Path = DEFAULT_SCRAPER_ROOT,
     dest_root: Path = DEFAULT_OUTPUT_ROOT,
 ) -> Path:
-    """Execute the upstream scraper and copy JSON output.
+    """Execute the upstream scraper and copy JSON output plus metadata.
 
+    Args:
+        cfg: Scraper configuration values.
+        scraper_root: Root directory for the upstream scraper checkout.
+        dest_root: Destination directory for the copied JSON payload.
     Returns:
         Path to the copied JSON directory.
 
@@ -108,14 +137,8 @@ def run_scraper(
 
     write_config(cfg, scraper_root=scraper_root)
     subprocess.run(
-        ["uv", "run", "python", "scrape.py"],
+        args=["uv", "run", "python", "scrape.py"],
         check=True,
         cwd=scraper_root,
     )
-    return _copy_json_output(scraper_root, dest_root)
-
-
-def iter_chapter_paths(root: Path) -> List[Path]:
-    """List all chapter JSON files beneath ``root``."""
-
-    return sorted(root.glob("**/*.json"))
+    return _copy_json_output(scraper_root=scraper_root, dest_root=dest_root)
